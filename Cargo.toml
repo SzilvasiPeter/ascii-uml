@@ -2,5 +2,11 @@
 name = "ascii-uml"
 version = "0.1.0"
 edition = "2024"
+description = "A CLI tool to create ASCII UML diagrams from text."
+license = "MIT"
+repository = "https://github.com/SzilvasiPeter/ascii-uml"
+readme = "README.md"
+keywords = ["ascii", "uml", "diagram", "cli"]
+categories = ["command-line-utilities", "visualization", "development-tools"]
 
 [dependencies]
