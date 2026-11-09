@@ -24,7 +24,7 @@ cargo install ascii-uml
 ascii-uml sequence sequence.txt
 ```
 
-The input must be less than 16 MiB regular file.
+The input must be a regular file no larger than 4 KiB.
 
 Run `ascii-uml --help` for all options and the input format.
 

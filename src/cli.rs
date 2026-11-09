@@ -2,8 +2,8 @@ use std::io::Read;
 
 use crate::sequence;
 
-/// Upper bound for input files is 16 MiB to protect against OOM.
-const MAX_INPUT_BYTES: u64 = 16 * 1024 * 1024;
+/// Upper bound for input files is 4 KiB to protect against OOM.
+const MAX_INPUT_BYTES: u64 = 4 * 1024;
 
 const SUBCOMMANDS: &[Subcommand] =
     &[Subcommand { name: "sequence", about: "Create a sequence diagram", run: sequence::run }];
@@ -47,14 +47,14 @@ Options:
   -h, --help     Show this help message
   -V, --version  Show version information
 
-Input must be a regular file no larger than {} MiB.
+Input must be a regular file no larger than {} KiB.
 
 Sequence input format:
   sender -> receiver: description
   sender <- receiver: description
 ",
         env!("CARGO_PKG_NAME"),
-        MAX_INPUT_BYTES / (1024 * 1024),
+        MAX_INPUT_BYTES / 1024,
     )
 }
 
@@ -176,8 +176,7 @@ mod tests {
 
         let args = ["sequence".to_owned(), file.path().display().to_string()];
         let error = execute(&args).unwrap_err().to_string();
-        assert!(error.contains("exceeds 16777216 bytes"));
-        assert!(error.contains(&MAX_INPUT_BYTES.to_string()));
+        assert!(error.contains(&format!("exceeds {MAX_INPUT_BYTES} bytes")));
     }
 
     #[cfg(unix)]
