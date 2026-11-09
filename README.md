@@ -1,6 +1,12 @@
 # ascii-uml
 
-A small command-line tool that turns simple text descriptions into ASCII UML diagrams.
+[![crates.io](https://img.shields.io/crates/v/ascii-uml)](https://crates.io/crates/ascii-uml)
+[![coverage](https://img.shields.io/endpoint?url=https://szilvasipeter.github.io/ascii-uml/badge.json)](https://szilvasipeter.github.io/ascii-uml/html/index.html)
+![forbids-unsafe](https://img.shields.io/badge/forbids-unsafe-blue)
+![ci](https://github.com/SzilvasiPeter/ascii-uml/actions/workflows/ci.yml/badge.svg)
+![cd](https://github.com/SzilvasiPeter/ascii-uml/actions/workflows/cd.yml/badge.svg)
+
+A small command-line tool that turns simple text into ASCII UML diagrams.
 
 Inspired by:
 - https://github.com/rust-lang/bors/blob/main/docs/design.md
@@ -24,7 +30,7 @@ Run `ascii-uml --help` for all options and the input format.
 
 - `sequence` - create a sequence diagram from a simple text description.
 
-## Sequence input format
+#### Sequence input format
 
 Each non-empty line describes one message:
 
