@@ -1,4 +1,12 @@
+use std::io::Read;
+
 use crate::sequence;
+
+/// Upper bound for input files is 16 MiB to protect against OOM.
+const MAX_INPUT_BYTES: u64 = 16 * 1024 * 1024;
+
+const SUBCOMMANDS: &[Subcommand] =
+    &[Subcommand { name: "sequence", about: "Create a sequence diagram", run: sequence::run }];
 
 enum Error {
     Usage(String),
@@ -18,9 +26,6 @@ struct Subcommand {
     about: &'static str,
     run: fn(&str),
 }
-
-const SUBCOMMANDS: &[Subcommand] =
-    &[Subcommand { name: "sequence", about: "Create a sequence diagram", run: sequence::run }];
 
 pub fn usage() -> String {
     let commands = SUBCOMMANDS
@@ -42,11 +47,14 @@ Options:
   -h, --help     Show this help message
   -V, --version  Show version information
 
+Input must be a regular file no larger than {} MiB.
+
 Sequence input format:
   sender -> receiver: description
   sender <- receiver: description
 ",
         env!("CARGO_PKG_NAME"),
+        MAX_INPUT_BYTES / (1024 * 1024),
     )
 }
 
@@ -96,11 +104,32 @@ fn run_subcommand(command: &Subcommand, args: &[String]) -> Result<(), Error> {
         return Err(Error::Message("only one input file may be specified".to_owned()));
     }
 
-    let input = std::fs::read_to_string(path)
+    let input = read_input(path)?;
+    (command.run)(&input);
+
+    Ok(())
+}
+
+fn read_input(path: &str) -> Result<String, Error> {
+    let mut file = std::fs::File::open(path)
+        .map_err(|error| Error::Message(format!("failed to read '{path}': {error}")))?;
+    let metadata = file
+        .metadata()
         .map_err(|error| Error::Message(format!("failed to read '{path}': {error}")))?;
 
-    (command.run)(&input);
-    Ok(())
+    if !metadata.is_file() {
+        return Err(Error::Message(format!("input file '{path}' is not a regular file")));
+    }
+
+    if metadata.len() > MAX_INPUT_BYTES {
+        return Err(Error::Message(format!("file '{path}' exceeds {MAX_INPUT_BYTES} bytes")));
+    }
+
+    let mut input = String::new();
+    file.read_to_string(&mut input)
+        .map_err(|error| Error::Message(format!("failed to read '{path}': {error}")))?;
+
+    Ok(input)
 }
 
 #[cfg(test)]
@@ -131,11 +160,33 @@ mod tests {
 
     #[test]
     fn runs_sequence_subcommand() {
-        let path = std::env::temp_dir().join("ascii-uml-cli-test.txt");
-        std::fs::write(&path, "a -> b: hi\n").unwrap();
-        let args = ["sequence".to_owned(), path.display().to_string()];
+        use std::io::Write;
+
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(b"a -> b: hi\n").unwrap();
+
+        let args = ["sequence".to_owned(), file.path().display().to_string()];
         assert!(execute(&args).is_ok());
-        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn rejects_input_larger_than_limit() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        file.as_file().set_len(MAX_INPUT_BYTES + 1).unwrap();
+
+        let args = ["sequence".to_owned(), file.path().display().to_string()];
+        let error = execute(&args).unwrap_err().to_string();
+        assert!(error.contains("exceeds 16777216 bytes"));
+        assert!(error.contains(&MAX_INPUT_BYTES.to_string()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_non_regular_file() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let args = ["sequence".to_owned(), directory.path().display().to_string()];
+        let error = execute(&args).unwrap_err().to_string();
+        assert!(error.contains("is not a regular file"));
     }
 
     #[test]

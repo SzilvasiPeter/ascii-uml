@@ -10,3 +10,6 @@ keywords = ["ascii", "uml", "diagram", "cli"]
 categories = ["command-line-utilities", "visualization", "development-tools"]
 
 [dependencies]
+
+[dev-dependencies]
+tempfile = "3"

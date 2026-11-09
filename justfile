@@ -1,11 +1,11 @@
+check:
+    cargo fmt --all -- --check
+    cargo clippy --all-targets --all-features -- -D warnings -W clippy::all -W clippy::pedantic -W clippy::nursery -W clippy::cargo
+
 safety:
     cargo machete
     cargo audit
     cargo deny check
-
-check:
-    cargo fmt --all -- --check
-    cargo clippy --all-targets --all-features -- -D warnings -W clippy::all -W clippy::pedantic -W clippy::nursery -W clippy::cargo
 
 workflows:
     actionlint .github/workflows/*.yml
@@ -21,3 +21,5 @@ coverage:
 
 open:
     cargo llvm-cov --html --open
+
+all: check safety workflows coverage
