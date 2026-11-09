@@ -24,7 +24,7 @@ impl std::fmt::Display for Error {
 struct Subcommand {
     name: &'static str,
     about: &'static str,
-    run: fn(&str),
+    run: fn(&str) -> Result<String, String>,
 }
 
 pub fn usage() -> String {
@@ -83,14 +83,17 @@ fn execute(args: &[String]) -> Result<(), Error> {
                 return Ok(());
             }
             option if option.starts_with('-') => {
-                return Err(Error::Usage(format!("unrecognized option '{option}'")));
+                return Err(Error::Usage(format!(
+                    "unrecognized option '{}'",
+                    option.escape_debug()
+                )));
             }
             _ => {}
         }
     }
 
     SUBCOMMANDS.iter().find(|command| command.name == argument).map_or_else(
-        || Err(Error::Usage(format!("unrecognized command '{argument}'"))),
+        || Err(Error::Usage(format!("unrecognized command '{}'", argument.escape_debug()))),
         |command| run_subcommand(command, &args[1..]),
     )
 }
@@ -105,29 +108,33 @@ fn run_subcommand(command: &Subcommand, args: &[String]) -> Result<(), Error> {
     }
 
     let input = read_input(path)?;
-    (command.run)(&input);
+    let output = (command.run)(&input).map_err(Error::Message)?;
+    print!("{output}");
 
     Ok(())
 }
 
 fn read_input(path: &str) -> Result<String, Error> {
+    let escaped_path = path.escape_debug();
     let mut file = std::fs::File::open(path)
-        .map_err(|error| Error::Message(format!("failed to read '{path}': {error}")))?;
+        .map_err(|error| Error::Message(format!("failed to read '{escaped_path}': {error}")))?;
     let metadata = file
         .metadata()
-        .map_err(|error| Error::Message(format!("failed to read '{path}': {error}")))?;
+        .map_err(|error| Error::Message(format!("failed to read '{escaped_path}': {error}")))?;
 
     if !metadata.is_file() {
-        return Err(Error::Message(format!("input file '{path}' is not a regular file")));
+        return Err(Error::Message(format!("input file '{escaped_path}' is not a regular file")));
     }
 
     if metadata.len() > MAX_INPUT_BYTES {
-        return Err(Error::Message(format!("file '{path}' exceeds {MAX_INPUT_BYTES} bytes")));
+        return Err(Error::Message(format!(
+            "file '{escaped_path}' exceeds {MAX_INPUT_BYTES} bytes"
+        )));
     }
 
     let mut input = String::new();
     file.read_to_string(&mut input)
-        .map_err(|error| Error::Message(format!("failed to read '{path}': {error}")))?;
+        .map_err(|error| Error::Message(format!("failed to read '{escaped_path}': {error}")))?;
 
     Ok(input)
 }
@@ -186,6 +193,23 @@ mod tests {
         let args = ["sequence".to_owned(), directory.path().display().to_string()];
         let error = execute(&args).unwrap_err().to_string();
         assert!(error.contains("is not a regular file"));
+    }
+
+    #[test]
+    fn escapes_control_characters_in_arguments() {
+        let command = "bad\u{1b}[2J".to_owned();
+        let error = execute(&[command]).unwrap_err().to_string();
+        assert_eq!(error, r"unrecognized command 'bad\u{1b}[2J'");
+
+        let option = "--bad\u{1b}[31m".to_owned();
+        let error = execute(&[option]).unwrap_err().to_string();
+        assert!(error.contains(r"--bad\u{1b}[31m"));
+
+        let path = "missing\u{1b}]0;pwned\u{7}".to_owned();
+        let error = execute(&["sequence".to_owned(), path]).unwrap_err().to_string();
+        assert!(error.contains(r"missing\u{1b}]0;pwned\u{7}"));
+        assert!(!error.contains('\u{1b}'));
+        assert!(!error.contains('\u{7}'));
     }
 
     #[test]

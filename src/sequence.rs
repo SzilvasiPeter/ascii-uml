@@ -222,11 +222,8 @@ fn draw_arrow(row: &[char], from_x: usize, to_x: usize) -> Vec<char> {
     res
 }
 
-pub fn run(input: &str) {
-    match Sequence::parse(input) {
-        Ok(diagram) => print!("{}", diagram.render()),
-        Err(error) => eprintln!("error: {error}"),
-    }
+pub fn run(input: &str) -> Result<String, String> {
+    Sequence::parse(input).map(|diagram| diagram.render()).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
