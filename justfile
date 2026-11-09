@@ -2,9 +2,7 @@ fmt:
     cargo fmt --all -- --check
 
 clippy:
-    cargo clippy --all-targets --all-features -- \
-        -D warnings \
-        -W clippy::all -W clippy::pedantic -W clippy::nursery -W clippy::cargo
+    cargo clippy --all-targets --all-features -- -D warnings -W clippy::all -W clippy::pedantic -W clippy::nursery -W clippy::cargo
 
 test:
     cargo test --all-targets --all-features
