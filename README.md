@@ -39,21 +39,21 @@ the right participant to the left participant.
 For example:
 
 ```text
-kid -> mom: give cookie
-kid <- mom: get cookie
+student -> master: ask the way
+student <- master: show the way
 ```
 
 produces:
 
 ```text
-+-----+       +-----+
-| kid |       | mom |
-+-----+       +-----+
-   |             |
-   | give cookie |
-   |------------>|
-   |             |
-   | get cookie  |
-   |<------------|
-   |             |
++---------+    +---------+
+| student |    | master  |
++---------+    +---------+
+     |              |
+     | ask the way  |
+     |------------->|
+     |              |
+     | show the way |
+     |<-------------|
+     |              |
 ```

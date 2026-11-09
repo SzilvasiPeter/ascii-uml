@@ -34,15 +34,15 @@ struct Event {
 
 #[derive(Debug, Default)]
 struct Diagram {
-    senders: Vec<String>,
+    participants: Vec<String>,
     events: Vec<Event>,
 }
 
 impl Diagram {
     fn participant_index(&mut self, name: &str) -> usize {
-        self.senders.iter().position(|p| p == name).unwrap_or_else(|| {
-            self.senders.push(name.to_owned());
-            self.senders.len() - 1
+        self.participants.iter().position(|p| p == name).unwrap_or_else(|| {
+            self.participants.push(name.to_owned());
+            self.participants.len() - 1
         })
     }
 
@@ -73,9 +73,12 @@ impl Diagram {
     }
 
     fn render(&self) -> String {
+        debug_assert!(self.participants.len() >= 2);
+        debug_assert!(self.events.len() >= 1);
+
         // `| <name> |` needs 4 border char; `| 1` ensures odd width for a midpoint.
         let box_widths: Vec<usize> =
-            self.senders.iter().map(|name| name.chars().count() + 4 | 1).collect();
+            self.participants.iter().map(|name| (name.chars().count() + 4) | 1).collect();
         let mut spacings: Vec<usize> =
             box_widths.windows(2).map(|width| width[0] / 2 + width[1] / 2 + 2).collect();
         for event in &self.events {
@@ -90,25 +93,23 @@ impl Diagram {
         }
 
         let first_column = box_widths[0] / 2;
-        let box_centers: Vec<usize> = std::iter::once(first_column)
-            .chain(spacings.iter().scan(first_column, |position, spacing| {
-                *position += spacing;
-                Some(*position)
-            }))
-            .collect();
+        let mut box_centers = vec![first_column];
+        for spacing in &spacings {
+            box_centers.push(box_centers[box_centers.len() - 1] + spacing);
+        }
 
-        let last_center = box_centers.last().expect("column_pos must not be empty");
-        let last_box = box_widths.last().expect("box_widths must not be empty");
+        let last_center = box_centers[box_centers.len() - 1];
+        let last_box = box_widths[box_widths.len() - 1];
         let header_width = (last_center + 1) + (last_box / 2 + 1);
 
         let mut header_rows: [Vec<char>; 3] = core::array::from_fn(|_| vec![' '; header_width]);
-        for (index, name) in self.senders.iter().enumerate() {
+        for (index, name) in self.participants.iter().enumerate() {
             let left = box_centers[index] - box_widths[index] / 2;
             header_rows = draw_box(header_rows, left, box_widths[index], name);
         }
 
         let mut lines: Vec<String> = header_rows.map(String::from_iter).into_iter().collect();
-        let empty_row = || columns_row(&box_centers, header_width);
+        let empty_row = || lifeline_row(&box_centers, header_width);
         lines.push(String::from_iter(empty_row()));
 
         for event in &self.events {
@@ -169,6 +170,9 @@ fn parse_line(line_number: usize, line: &str) -> Result<ParsedLine, ParseError> 
     Ok(ParsedLine { left, right, points_right, message })
 }
 
+// +---+
+// | a |
+// +---+
 fn draw_box(mut header: [Vec<char>; 3], left: usize, width: usize, name: &str) -> [Vec<char>; 3] {
     let right = left + width - 1;
 
@@ -189,6 +193,23 @@ fn draw_box(mut header: [Vec<char>; 3], left: usize, width: usize, name: &str) -
     header
 }
 
+// +---+ +---+
+// | a | | b |
+// +---+ +---+
+//   |     |
+fn lifeline_row(column_positions: &[usize], width: usize) -> Vec<char> {
+    let mut row = vec![' '; width];
+    for &x in column_positions {
+        row[x] = '|';
+    }
+    row
+}
+
+// +---+ +---+
+// | a | | b |
+// +---+ +---+
+//   |     |
+//   |---->|
 fn draw_arrow(row: &[char], from_x: usize, to_x: usize) -> Vec<char> {
     let mut res = row.to_vec();
     if from_x < to_x {
@@ -201,52 +222,39 @@ fn draw_arrow(row: &[char], from_x: usize, to_x: usize) -> Vec<char> {
     res
 }
 
-fn columns_row(column_positions: &[usize], width: usize) -> Vec<char> {
-    let mut row = vec![' '; width];
-    for &x in column_positions {
-        row[x] = '|';
-    }
-    row
-}
-
 pub fn run(args: &[String]) {
-    let Some(argument) = args.first() else {
+    let Some(path) = args.first() else {
         return cli::usage_error("missing input file");
     };
 
-    match argument.as_str() {
-        "-h" | "--help" => print!("{}", cli::usage()),
-        "-V" | "--version" => {
-            println!("{} sequence {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
-        }
-        option if option.starts_with('-') => {
-            cli::usage_error(&format!("unrecognized option '{option}'"));
-        }
-        path => {
-            if args.len() > 1 {
-                eprintln!("error: only one input file may be specified");
-                return;
-            }
+    if args.len() > 1 {
+        eprintln!("error: only one input file may be specified");
+        return;
+    }
 
-            let input = match fs::read_to_string(path) {
-                Ok(input) => input,
-                Err(error) => {
-                    eprintln!("error: failed to read '{path}': {error}");
-                    return;
-                }
-            };
-
-            match Diagram::parse(&input) {
-                Ok(diagram) => print!("{}", diagram.render()),
-                Err(error) => eprintln!("error: {error}"),
-            }
+    let input = match fs::read_to_string(path) {
+        Ok(input) => input,
+        Err(error) => {
+            eprintln!("error: failed to read '{path}': {error}");
+            return;
         }
+    };
+
+    match Diagram::parse(&input) {
+        Ok(diagram) => print!("{}", diagram.render()),
+        Err(error) => eprintln!("error: {error}"),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_parsed_line_adds_two_participants() {
+        let diagram = Diagram::parse("A -> B: hi\n").unwrap();
+        assert_eq!(diagram.participants.len(), 2);
+    }
 
     #[test]
     fn parses_both_arrow_directions() {
@@ -258,7 +266,7 @@ column1 <- column2: do 3
         )
         .unwrap();
 
-        assert_eq!(diagram.senders, ["column1", "column2", "column3"]);
+        assert_eq!(diagram.participants, ["column1", "column2", "column3"]);
         assert_eq!(
             diagram.events,
             [
@@ -296,7 +304,6 @@ column1 <- column2: do 3
         let diagram = Diagram::parse("aa -> bb: a\nc1 -> c2: aaaaaaa\n").unwrap();
         let output = diagram.render();
         let top = output.lines().next().unwrap().trim_end();
-
         assert!(top.ends_with("+-----+   +-----+"));
     }
 

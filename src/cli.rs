@@ -45,18 +45,27 @@ pub fn run(args: &[String]) {
         return usage_error("missing command");
     };
 
-    match argument.as_str() {
-        "-h" | "--help" => print!("{}", usage()),
-        "-V" | "--version" => {
-            println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+    for argument in args {
+        match argument.as_str() {
+            "-h" | "--help" => {
+                print!("{}", usage());
+                return;
+            }
+            "-V" | "--version" => {
+                println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+                return;
+            }
+            option if option.starts_with('-') => {
+                usage_error(&format!("unrecognized option '{option}'"));
+                return;
+            }
+            _ => {}
         }
-        option if option.starts_with('-') => {
-            usage_error(&format!("unrecognized option '{option}'"));
-        }
-        name => match SUBCOMMANDS.iter().find(|command| command.name == name) {
-            Some(command) => (command.run)(&args[1..]),
-            None => usage_error(&format!("unrecognized command '{name}'")),
-        },
+    }
+
+    match SUBCOMMANDS.iter().find(|command| command.name == argument) {
+        Some(command) => (command.run)(&args[1..]),
+        None => usage_error(&format!("unrecognized command '{argument}'")),
     }
 }
 
