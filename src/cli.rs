@@ -14,7 +14,7 @@ Options:
   -h, --help     Show this help message
   -V, --version  Show version information";
 
-pub(crate) fn usage() -> String {
+pub fn usage() -> String {
     let commands = SUBCOMMANDS
         .iter()
         .map(|command| format!("  {:<10} {}", command.name, command.about))
@@ -69,6 +69,6 @@ pub fn run(args: &[String]) {
     }
 }
 
-pub(crate) fn usage_error(message: &str) {
+pub fn usage_error(message: &str) {
     eprintln!("error: {message}\n\n{}", usage());
 }

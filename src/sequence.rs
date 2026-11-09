@@ -74,7 +74,7 @@ impl Diagram {
 
     fn render(&self) -> String {
         debug_assert!(self.participants.len() >= 2);
-        debug_assert!(self.events.len() >= 1);
+        debug_assert!(!self.events.is_empty(), "diagram must contain at least one event");
 
         // `| <name> |` needs 4 border char; `| 1` ensures odd width for a midpoint.
         let box_widths: Vec<usize> =
@@ -145,13 +145,13 @@ fn parse_line(line_number: usize, line: &str) -> Result<ParsedLine, ParseError> 
     let (header, message) = line
         .split_once(':')
         .ok_or_else(|| ParseError::new(line_number, "expected ':' before the description"))?;
-    let (arrow_index, points_right) = match (header.find("->"), header.find("<-")) {
-        (Some(r), Some(l)) if r < l => (r, true),
-        (Some(r), Some(l)) if r > l => (l, false),
-        (Some(r), None) => (r, true),
-        (None, Some(l)) => (l, false),
-        _ => return Err(ParseError::new(line_number, "expected an arrow ('->' or '<-')")),
-    };
+    let (arrow_index, points_right) =
+        match (header.matches("->").count(), header.matches("<-").count()) {
+            (1, 0) => (header.find("->").expect("counted arrow"), true),
+            (0, 1) => (header.find("<-").expect("counted arrow"), false),
+            (0, 0) => return Err(ParseError::new(line_number, "expected an arrow ('->' or '<-')")),
+            _ => return Err(ParseError::new(line_number, "expected exactly one '->' or '<-'")),
+        };
 
     let message = message.trim();
     let left = header[..arrow_index].trim();
@@ -259,10 +259,10 @@ mod tests {
     #[test]
     fn parses_both_arrow_directions() {
         let diagram = Diagram::parse(
-            r#"column1 -> column2: do 1
+            r"column1 -> column2: do 1
 column2 <- column3: do 2
 column1 <- column2: do 3
-"#,
+",
         )
         .unwrap();
 
@@ -275,6 +275,18 @@ column1 <- column2: do 3
                 Event { from: 1, to: 0, text: "do 3".to_owned() },
             ]
         );
+    }
+
+    #[test]
+    fn rejects_multiple_arrows() {
+        let cases = ["a -><- b: hi\n", "a <--> b: hi\n", "a -> b -> c: hi\n"];
+
+        for input in cases {
+            assert_eq!(
+                Diagram::parse(input).unwrap_err().to_string(),
+                "line 1: expected exactly one '->' or '<-'"
+            );
+        }
     }
 
     #[test]
