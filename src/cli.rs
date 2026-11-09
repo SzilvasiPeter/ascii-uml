@@ -3,7 +3,7 @@ use crate::sequence;
 struct Subcommand {
     name: &'static str,
     about: &'static str,
-    run: fn(&[String]),
+    run: fn(&str),
 }
 
 const SUBCOMMANDS: &[Subcommand] =
@@ -64,9 +64,30 @@ pub fn run(args: &[String]) {
     }
 
     match SUBCOMMANDS.iter().find(|command| command.name == argument) {
-        Some(command) => (command.run)(&args[1..]),
+        Some(command) => run_subcommand(command, &args[1..]),
         None => usage_error(&format!("unrecognized command '{argument}'")),
     }
+}
+
+fn run_subcommand(command: &Subcommand, args: &[String]) {
+    let Some(path) = args.first() else {
+        return usage_error("missing input file");
+    };
+
+    if args.len() > 1 {
+        eprintln!("error: only one input file may be specified");
+        return;
+    }
+
+    let input = match std::fs::read_to_string(path) {
+        Ok(input) => input,
+        Err(error) => {
+            eprintln!("error: failed to read '{path}': {error}");
+            return;
+        }
+    };
+
+    (command.run)(&input);
 }
 
 pub fn usage_error(message: &str) {

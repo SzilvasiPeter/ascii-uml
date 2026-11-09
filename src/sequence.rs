@@ -1,7 +1,4 @@
 use std::fmt;
-use std::fs;
-
-use crate::cli;
 
 #[derive(Debug)]
 struct ParseError {
@@ -222,25 +219,8 @@ fn draw_arrow(row: &[char], from_x: usize, to_x: usize) -> Vec<char> {
     res
 }
 
-pub fn run(args: &[String]) {
-    let Some(path) = args.first() else {
-        return cli::usage_error("missing input file");
-    };
-
-    if args.len() > 1 {
-        eprintln!("error: only one input file may be specified");
-        return;
-    }
-
-    let input = match fs::read_to_string(path) {
-        Ok(input) => input,
-        Err(error) => {
-            eprintln!("error: failed to read '{path}': {error}");
-            return;
-        }
-    };
-
-    match Diagram::parse(&input) {
+pub fn run(input: &str) {
+    match Diagram::parse(input) {
         Ok(diagram) => print!("{}", diagram.render()),
         Err(error) => eprintln!("error: {error}"),
     }
