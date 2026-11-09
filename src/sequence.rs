@@ -162,6 +162,9 @@ fn parse_line(line_number: usize, line: &str) -> Result<ParsedLine, ParseError> 
     if left == right {
         return Err(ParseError::new(line_number, "a sender cannot message itself"));
     }
+    if [left, right, message].iter().any(|value| value.chars().any(char::is_control)) {
+        return Err(ParseError::new(line_number, "control characters are not allowed"));
+    }
 
     let (left, right, message) = (left.to_owned(), right.to_owned(), message.to_owned());
     Ok(ParsedLine { left, right, points_right, message })
@@ -297,6 +300,31 @@ column1 <- column2: do 3
         let output = diagram.render();
         let top = output.lines().next().unwrap().trim_end();
         assert!(top.ends_with("+-----+   +-----+"));
+    }
+
+    #[test]
+    fn rejects_control_characters() {
+        let cases = [
+            "a -> b: \u{1b}[31mred\n",
+            "a\u{1b} -> b: hi\n",
+            "a -> b\u{7f}: hi\n",
+            "a -> b: \u{9b}31mred\n",
+            "a -> b: line\u{0}break\n",
+        ];
+
+        for input in cases {
+            assert_eq!(
+                Sequence::parse(input).unwrap_err().to_string(),
+                "line 1: control characters are not allowed"
+            );
+        }
+    }
+
+    #[test]
+    fn allows_printable_unicode() {
+        let diagram = Sequence::parse("café -> 世界: 🙂\n").unwrap();
+        assert_eq!(diagram.participants, ["café", "世界"]);
+        assert_eq!(diagram.events[0].text, "🙂");
     }
 
     #[test]
