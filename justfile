@@ -1,16 +1,23 @@
-fmt:
-    cargo fmt --all -- --check
+safety:
+    cargo machete
+    cargo audit
+    cargo deny check
 
-clippy:
+check:
+    cargo fmt --all -- --check
     cargo clippy --all-targets --all-features -- -D warnings -W clippy::all -W clippy::pedantic -W clippy::nursery -W clippy::cargo
 
-test:
-    cargo test --all-targets --all-features
+workflows:
+    actionlint .github/workflows/*.yml
+    shuck check --extend-select ALL --ignore S081 . # Ignore S081: file-header comments are noise inside `run:` blocks.
+    zizmor .
 
 coverage:
-    cargo llvm-cov --all-targets --all-features --workspace --html
+    cargo llvm-cov --all-features --fail-under-lines 80 --html --output-dir target/coverage
+    cargo llvm-cov report --json --output-path target/coverage/coverage.json
+    percent=$(jq -r '.data[0].totals.lines.percent' target/coverage/coverage.json) \
+    && formatted=$(printf "%.2f%%" "$percent") \
+    && jq -n --arg msg "$formatted" '{schemaVersion: 1, label: "coverage", message: $msg, color: "green"}' > target/coverage/badge.json
 
 open:
     cargo llvm-cov --html --open
-
-check: fmt clippy test

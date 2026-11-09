@@ -30,12 +30,12 @@ struct Event {
 }
 
 #[derive(Debug, Default)]
-struct Diagram {
+struct Sequence {
     participants: Vec<String>,
     events: Vec<Event>,
 }
 
-impl Diagram {
+impl Sequence {
     fn participant_index(&mut self, name: &str) -> usize {
         self.participants.iter().position(|p| p == name).unwrap_or_else(|| {
             self.participants.push(name.to_owned());
@@ -220,7 +220,7 @@ fn draw_arrow(row: &[char], from_x: usize, to_x: usize) -> Vec<char> {
 }
 
 pub fn run(input: &str) {
-    match Diagram::parse(input) {
+    match Sequence::parse(input) {
         Ok(diagram) => print!("{}", diagram.render()),
         Err(error) => eprintln!("error: {error}"),
     }
@@ -232,13 +232,13 @@ mod tests {
 
     #[test]
     fn every_parsed_line_adds_two_participants() {
-        let diagram = Diagram::parse("A -> B: hi\n").unwrap();
+        let diagram = Sequence::parse("A -> B: hi\n").unwrap();
         assert_eq!(diagram.participants.len(), 2);
     }
 
     #[test]
     fn parses_both_arrow_directions() {
-        let diagram = Diagram::parse(
+        let diagram = Sequence::parse(
             r"column1 -> column2: do 1
 column2 <- column3: do 2
 column1 <- column2: do 3
@@ -263,7 +263,7 @@ column1 <- column2: do 3
 
         for input in cases {
             assert_eq!(
-                Diagram::parse(input).unwrap_err().to_string(),
+                Sequence::parse(input).unwrap_err().to_string(),
                 "line 1: expected exactly one '->' or '<-'"
             );
         }
@@ -271,7 +271,7 @@ column1 <- column2: do 3
 
     #[test]
     fn renders_boxes_and_arrows() {
-        let diagram = Diagram::parse("A -> B: hi\nA <- B: back\n").unwrap();
+        let diagram = Sequence::parse("A -> B: hi\nA <- B: back\n").unwrap();
         let output = diagram.render();
         let lines: Vec<&str> = output.lines().collect();
 
@@ -284,7 +284,7 @@ column1 <- column2: do 3
 
     #[test]
     fn keeps_short_column_gaps_compact() {
-        let diagram = Diagram::parse("aa -> bb: a\nc1 -> c2: aaaaaaa\n").unwrap();
+        let diagram = Sequence::parse("aa -> bb: a\nc1 -> c2: aaaaaaa\n").unwrap();
         let output = diagram.render();
         let top = output.lines().next().unwrap();
 
@@ -293,7 +293,7 @@ column1 <- column2: do 3
 
     #[test]
     fn widens_only_columns_that_need_more_room() {
-        let diagram = Diagram::parse("aa -> bb: a\nc1 -> c2: aaaaaaa\n").unwrap();
+        let diagram = Sequence::parse("aa -> bb: a\nc1 -> c2: aaaaaaa\n").unwrap();
         let output = diagram.render();
         let top = output.lines().next().unwrap().trim_end();
         assert!(top.ends_with("+-----+   +-----+"));
@@ -312,7 +312,7 @@ column1 <- column2: do 3
         ];
 
         for (input, expected) in cases {
-            assert_eq!(Diagram::parse(input).unwrap_err().to_string(), expected);
+            assert_eq!(Sequence::parse(input).unwrap_err().to_string(), expected);
         }
     }
 }
