@@ -156,7 +156,7 @@ impl Diagram {
 
         let mut positions = HashMap::new();
         for (row_index, row) in self.rows.iter().enumerate() {
-            let mut x = (canvas_width - row_widths[row_index]) / 2;
+            let mut x = 0;
             for (column_index, name) in row.iter().enumerate() {
                 let width = widths[row_index][column_index];
                 positions.insert(
@@ -482,31 +482,32 @@ mod tests {
 
     #[test]
     fn renders_offset_upward_edges() {
+        let layout = "layout {\n  X, A\n  B\n}\n";
         let solid = concat!(
-            "     +---+\n",
-            "     | A |\n",
-            "     +---+\n",
-            "       ^\n",
-            "  +----+\n",
-            "  |\n",
             "+---+     +---+\n",
-            "| B |     | C |\n",
-            "+---+     +---+",
+            "| X |     | A |\n",
+            "+---+     +---+\n",
+            "            ^\n",
+            "  +---------+\n",
+            "  |\n",
+            "+---+\n",
+            "| B |\n",
+            "+---+",
         );
         let dotted = concat!(
-            "     +---+\n",
-            "     | A |\n",
-            "     +---+\n",
-            "       ^\n",
-            "  +....+\n",
-            "  :\n",
             "+---+     +---+\n",
-            "| B |     | C |\n",
-            "+---+     +---+",
+            "| X |     | A |\n",
+            "+---+     +---+\n",
+            "            ^\n",
+            "  +.........+\n",
+            "  :\n",
+            "+---+\n",
+            "| B |\n",
+            "+---+",
         );
 
-        assert_eq!(render("layout {\n  A\n  B, C\n}\nB --> A\n"), solid);
-        assert_eq!(render("layout {\n  A\n  B, C\n}\nB ..|> A\n"), dotted);
+        assert_eq!(render(&format!("{layout}B --> A\n")), solid);
+        assert_eq!(render(&format!("{layout}B ..|> A\n")), dotted);
     }
 
     #[test]
