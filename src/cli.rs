@@ -1,6 +1,6 @@
 use std::io::Read;
 
-use crate::{class, sequence};
+use crate::diagrams::{class, sequence};
 
 /// Upper bound for input files is 4 KiB to protect against OOM.
 const MAX_INPUT_BYTES: u64 = 4 * 1024;
