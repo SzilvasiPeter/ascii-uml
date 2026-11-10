@@ -22,6 +22,7 @@ cargo install ascii-uml
 
 ```sh
 ascii-uml sequence sequence.txt
+ascii-uml class class.txt
 ```
 
 The input must be a regular file no larger than 4 KiB.
@@ -31,6 +32,7 @@ Run `ascii-uml --help` for all options and the input format.
 ### Commands
 
 - `sequence` - create a sequence diagram from a simple text description.
+- `class` - create a class diagram from a manual row layout.
 
 #### Sequence input format
 
@@ -64,4 +66,51 @@ produces:
      | show the way |
      |<-------------|
      |              |
+```
+
+#### Class input format
+
+Relations may connect classes in the same row if they are adjacent, or
+a class to one in the row directly above. The relation operators are:
+
+```text
+--|>  generalization
+..|>  realization
+*--   composition
+-->   association
+```
+
+The `layout` block assigns classes to rows, top to bottom. Names in a row are comma-separated and rendered left to right:
+
+```text
+Master --|> Person
+Student ..|> Trainee
+Master *-- SecretScroll
+Student --> Master
+
+layout {
+    Person
+    Master, SecretScroll
+    Student, Trainee
+}
+```
+
+produces:
+
+```text
+           +---------+
+           | Person  |
+           +---------+
+                ^
+     +----------+
+     |
++---------+     +---------------+
+| Master  |*----| SecretScroll  |
++---------+     +---------------+
+     ^
+     +--+
+        |
+   +---------+     +---------+
+   | Student |....>| Trainee |
+   +---------+     +---------+
 ```

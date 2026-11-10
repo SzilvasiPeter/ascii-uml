@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+mod class;
 mod cli;
 mod sequence;
 

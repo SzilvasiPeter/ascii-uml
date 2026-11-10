@@ -148,6 +148,10 @@ struct ParsedLine {
     message: String,
 }
 
+pub fn run(input: &str) -> Result<String, String> {
+    Sequence::parse(input).map(|diagram| diagram.render()).map_err(|error| error.to_string())
+}
+
 fn parse_line(line: usize, line_content: &str) -> Result<ParsedLine, ParseError> {
     const ARROW_LENGTH: usize = 2;
 
@@ -231,10 +235,6 @@ fn draw_arrow(row: &[char], from_x: usize, to_x: usize) -> Vec<char> {
         res[to_x + 1] = '<';
     }
     res
-}
-
-pub fn run(input: &str) -> Result<String, String> {
-    Sequence::parse(input).map(|diagram| diagram.render()).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
