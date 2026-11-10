@@ -59,15 +59,16 @@ Sequence input format:
 }
 
 pub fn run(args: &[String]) {
-    if let Err(error) = execute(args) {
-        match error {
+    match execute(args) {
+        Ok(message) => println!("{message}"),
+        Err(error) => match error {
             Error::Usage(message) => eprintln!("error: {message}\n\n{}", usage()),
             Error::Message(message) => eprintln!("error: {message}"),
-        }
+        },
     }
 }
 
-fn execute(args: &[String]) -> Result<(), Error> {
+fn execute(args: &[String]) -> Result<String, Error> {
     let Some(argument) = args.first() else {
         return Err(Error::Usage("missing command".to_owned()));
     };
@@ -75,30 +76,25 @@ fn execute(args: &[String]) -> Result<(), Error> {
     for argument in args {
         match argument.as_str() {
             "-h" | "--help" => {
-                print!("{}", usage());
-                return Ok(());
+                return Ok(usage());
             }
             "-V" | "--version" => {
-                println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
-                return Ok(());
+                return Ok(format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")));
             }
             option if option.starts_with('-') => {
-                return Err(Error::Usage(format!(
-                    "unrecognized option '{}'",
-                    option.escape_debug()
-                )));
+                return Err(Error::Usage(format!("unknown option '{}'", option.escape_debug())));
             }
             _ => {}
         }
     }
 
     SUBCOMMANDS.iter().find(|command| command.name == argument).map_or_else(
-        || Err(Error::Usage(format!("unrecognized command '{}'", argument.escape_debug()))),
+        || Err(Error::Usage(format!("unknown command '{}'", argument.escape_debug()))),
         |command| run_subcommand(command, &args[1..]),
     )
 }
 
-fn run_subcommand(command: &Subcommand, args: &[String]) -> Result<(), Error> {
+fn run_subcommand(command: &Subcommand, args: &[String]) -> Result<String, Error> {
     let Some(path) = args.first() else {
         return Err(Error::Usage("missing input file".to_owned()));
     };
@@ -109,9 +105,8 @@ fn run_subcommand(command: &Subcommand, args: &[String]) -> Result<(), Error> {
 
     let input = read_input(path)?;
     let output = (command.run)(&input).map_err(Error::Message)?;
-    print!("{output}");
 
-    Ok(())
+    Ok(output)
 }
 
 fn read_input(path: &str) -> Result<String, Error> {
@@ -199,7 +194,7 @@ mod tests {
     fn escapes_control_characters_in_arguments() {
         let command = "bad\u{1b}[2J".to_owned();
         let error = execute(&[command]).unwrap_err().to_string();
-        assert_eq!(error, r"unrecognized command 'bad\u{1b}[2J'");
+        assert_eq!(error, r"unknown command 'bad\u{1b}[2J'");
 
         let option = "--bad\u{1b}[31m".to_owned();
         let error = execute(&[option]).unwrap_err().to_string();
@@ -216,8 +211,8 @@ mod tests {
     fn reports_error_cases() {
         let cases = [
             (vec![], "missing command"),
-            (vec!["--bogus"], "unrecognized option '--bogus'"),
-            (vec!["bogus"], "unrecognized command 'bogus'"),
+            (vec!["--bogus"], "unknown option '--bogus'"),
+            (vec!["bogus"], "unknown command 'bogus'"),
             (vec!["sequence"], "missing input file"),
             (vec!["sequence", "a", "b"], "only one input file may be specified"),
         ];

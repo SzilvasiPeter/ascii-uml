@@ -124,7 +124,7 @@ impl Sequence {
             lines.push(String::from_iter(empty_row));
         }
 
-        lines.join("\n") + "\n"
+        lines.join("\n")
     }
 }
 
