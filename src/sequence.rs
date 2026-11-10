@@ -1,26 +1,38 @@
 use std::fmt;
 
 #[derive(Debug)]
-struct ParseError {
-    line: usize,
-    message: String,
-}
-
-impl ParseError {
-    fn new(line: usize, message: impl Into<String>) -> Self {
-        Self { line, message: message.into() }
-    }
+enum ParseError {
+    EmptyInput,
+    MissingColon { line: usize },
+    MissingArrow { line: usize },
+    MultipleArrows { line: usize },
+    EmptyArrowSide { line: usize },
+    EmptyDescription { line: usize },
+    SelfMessage { line: usize },
+    ControlCharacter { line: usize },
 }
 
 impl fmt::Display for ParseError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.line == 0 {
-            formatter.write_str(&self.message)
-        } else {
-            write!(formatter, "line {}: {}", self.line, self.message)
+        let (line, message) = match *self {
+            Self::EmptyInput => (None, "no messages found in input"),
+            Self::MissingColon { line } => (Some(line), "expected ':' before the description"),
+            Self::MissingArrow { line } => (Some(line), "expected an arrow ('->' or '<-')"),
+            Self::MultipleArrows { line } => (Some(line), "expected exactly one '->' or '<-'"),
+            Self::EmptyArrowSide { line } => (Some(line), "arrow cannot have empty sides"),
+            Self::EmptyDescription { line } => (Some(line), "description must not be empty"),
+            Self::SelfMessage { line } => (Some(line), "a sender cannot message itself"),
+            Self::ControlCharacter { line } => (Some(line), "control characters are not allowed"),
+        };
+
+        match line {
+            Some(line) => write!(formatter, "line {line}: {message}"),
+            None => formatter.write_str(message),
         }
     }
 }
+
+impl std::error::Error for ParseError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Event {
@@ -55,7 +67,7 @@ impl Sequence {
             .collect::<Result<Vec<_>, _>>()?;
 
         if parsed_lines.is_empty() {
-            return Err(ParseError::new(0, "no messages found in input"));
+            return Err(ParseError::EmptyInput);
         }
 
         let mut diagram = Self::default();
@@ -136,34 +148,33 @@ struct ParsedLine {
     message: String,
 }
 
-fn parse_line(line_number: usize, line: &str) -> Result<ParsedLine, ParseError> {
+fn parse_line(line: usize, line_content: &str) -> Result<ParsedLine, ParseError> {
     const ARROW_LENGTH: usize = 2;
 
-    let (header, message) = line
-        .split_once(':')
-        .ok_or_else(|| ParseError::new(line_number, "expected ':' before the description"))?;
+    let (header, message) =
+        line_content.split_once(':').ok_or(ParseError::MissingColon { line })?;
     let (arrow_index, points_right) =
         match (header.matches("->").count(), header.matches("<-").count()) {
             (1, 0) => (header.find("->").expect("counted arrow"), true),
             (0, 1) => (header.find("<-").expect("counted arrow"), false),
-            (0, 0) => return Err(ParseError::new(line_number, "expected an arrow ('->' or '<-')")),
-            _ => return Err(ParseError::new(line_number, "expected exactly one '->' or '<-'")),
+            (0, 0) => return Err(ParseError::MissingArrow { line }),
+            _ => return Err(ParseError::MultipleArrows { line }),
         };
 
     let message = message.trim();
     let left = header[..arrow_index].trim();
     let right = header[arrow_index + ARROW_LENGTH..].trim();
     if left.is_empty() || right.is_empty() {
-        return Err(ParseError::new(line_number, "arrow cannot have empty sides"));
+        return Err(ParseError::EmptyArrowSide { line });
     }
     if message.is_empty() {
-        return Err(ParseError::new(line_number, "description must not be empty"));
+        return Err(ParseError::EmptyDescription { line });
     }
     if left == right {
-        return Err(ParseError::new(line_number, "a sender cannot message itself"));
+        return Err(ParseError::SelfMessage { line });
     }
     if [left, right, message].iter().any(|value| value.chars().any(char::is_control)) {
-        return Err(ParseError::new(line_number, "control characters are not allowed"));
+        return Err(ParseError::ControlCharacter { line });
     }
 
     let (left, right, message) = (left.to_owned(), right.to_owned(), message.to_owned());

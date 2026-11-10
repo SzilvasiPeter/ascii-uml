@@ -122,9 +122,7 @@ fn read_input(path: &str) -> Result<String, Error> {
     }
 
     if metadata.len() > MAX_INPUT_BYTES {
-        return Err(Error::Message(format!(
-            "file '{escaped_path}' exceeds {MAX_INPUT_BYTES} bytes"
-        )));
+        return Err(Error::Message(format!("the {escaped_path} exceeds {MAX_INPUT_BYTES} bytes")));
     }
 
     let mut input = String::new();
