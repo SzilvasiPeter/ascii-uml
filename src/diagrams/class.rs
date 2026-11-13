@@ -1,7 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-const GAP: usize = 5;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Generalization,
@@ -146,6 +144,7 @@ impl Diagram {
     }
 
     fn render(&self) -> String {
+        const GAP: usize = 5;
         let widths: Vec<Vec<usize>> =
             self.rows.iter().map(|row| row.iter().map(|name| box_width(name)).collect()).collect();
         let row_widths: Vec<usize> = widths

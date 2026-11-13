@@ -1,0 +1,10 @@
+Master --|> Person
+Student ..|> Trainee
+Master *-- SecretScroll
+Student --> Master
+
+layout {
+    Person
+    Master, SecretScroll
+    Student, Trainee
+}
