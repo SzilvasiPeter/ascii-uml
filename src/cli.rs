@@ -1,6 +1,6 @@
 use std::io::Read;
 
-use crate::diagrams::{class, sequence};
+use crate::diagrams::{class, sequence, usecase};
 
 /// Upper bound for input files is 4 KiB to protect against OOM.
 const MAX_INPUT_BYTES: u64 = 4 * 1024;
@@ -8,6 +8,7 @@ const MAX_INPUT_BYTES: u64 = 4 * 1024;
 const SUBCOMMANDS: &[Subcommand] = &[
     Subcommand { name: "sequence", about: "Create a sequence diagram", run: sequence::run },
     Subcommand { name: "class", about: "Create a class diagram", run: class::run },
+    Subcommand { name: "usecase", about: "Create a use case diagram", run: usecase::run },
 ];
 
 enum Error {
@@ -63,6 +64,17 @@ Class input format:
   sender ..|> receiver
   sender *-- receiver
   sender --> receiver
+
+Use case input format:
+  system System Name {{
+    use case
+  }}
+  actor Left Actor
+  actor(left) Another Left Actor
+  actor(right) Right Actor
+  actor --> use case
+  use case ..> use case: include
+  use case ..> use case: extend
 ",
         env!("CARGO_PKG_NAME"),
         MAX_INPUT_BYTES / 1024,
@@ -152,6 +164,7 @@ mod tests {
         let usage = usage();
         assert!(usage.contains("sequence"));
         assert!(usage.contains("class"));
+        assert!(usage.contains("usecase"));
         assert!(usage.contains("-h, --help"));
         assert!(usage.contains("-V, --version"));
         assert!(usage.contains("sender -> receiver"));
@@ -159,11 +172,13 @@ mod tests {
 
     #[test]
     fn subcommands_are_registered() {
-        assert_eq!(SUBCOMMANDS.len(), 2);
+        assert_eq!(SUBCOMMANDS.len(), 3);
         assert_eq!(SUBCOMMANDS[0].name, "sequence");
         assert_eq!(SUBCOMMANDS[0].about, "Create a sequence diagram");
         assert_eq!(SUBCOMMANDS[1].name, "class");
         assert_eq!(SUBCOMMANDS[1].about, "Create a class diagram");
+        assert_eq!(SUBCOMMANDS[2].name, "usecase");
+        assert_eq!(SUBCOMMANDS[2].about, "Create a use case diagram");
     }
 
     #[test]

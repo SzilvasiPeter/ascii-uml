@@ -23,6 +23,7 @@ cargo install ascii-uml
 ```sh
 ascii-uml sequence sequence.txt
 ascii-uml class class.txt
+ascii-uml usecase usecase.txt
 ```
 
 The input must be a regular file no larger than 4 KiB.
@@ -33,6 +34,7 @@ Run `ascii-uml --help` for all options and the input format.
 
 - `sequence` - create a sequence diagram from a simple text description.
 - `class` - create a class diagram from a manual row layout.
+- `usecase` - create a use case diagram with one system boundary.
 
 #### Sequence input format
 
@@ -113,4 +115,54 @@ produces:
 +---------+     +---------+
 | Student |....>| Trainee |
 +---------+     +---------+
+```
+
+#### Use case input format
+
+A use case diagram has exactly one `system` block, actors on either side, and
+associations or include/extend dependencies:
+
+```text
+system Karate Dojo {
+    Practice Basic Kata
+    Bow & Observe Etiquette
+    Perform Controlled Sparring
+    Correct Stance & Form
+}
+
+actor White Belt
+actor(right) Yellow Belt
+
+White Belt --> Practice Basic Kata
+Yellow Belt --> Perform Controlled Sparring
+Practice Basic Kata ..> Bow & Observe Etiquette: include
+Correct Stance & Form ..> Perform Controlled Sparring: extend
+```
+
+`actor <name>`, `actor(left) <name>`, and `actor(right) <name>` place an actor on
+the left or right. Colons are not accepted in actor declarations.
+
+Associations (`-->`) connect an actor to a use case. Dependencies (`..>`) connect
+two use cases and must end with either `: include` or `: extend`.
+
+produces:
+
+```text
+    o        +---------- Karate Dojo ----------+        o
+   /|\-----+ |                                 | +-----/|\
+   / \     +-+-( Practice Basic Kata )         | |     / \
+White Belt   |   |                             | | Yellow Belt
+             |   include                       | |
+             |   v                             | |
+             | ( Bow & Observe Etiquette )     | |
+             |                                 | |
+             |                                 | |
+             |                                 | |
+             | ( Perform Controlled Sparring )-+-+
+             |     ^                           |
+             |     extend                      |
+             |     |                           |
+             | ( Correct Stance & Form )       |
+             |                                 |
+             +---------------------------------+
 ```

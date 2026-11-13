@@ -221,13 +221,7 @@ fn add_row(content: &str, rows: &mut Vec<Vec<String>>) -> Result<(), String> {
 }
 
 fn validate_name(name: &str) -> Result<(), String> {
-    if name.chars().any(|character| {
-        character.is_control()
-            || matches!(character, ',' | '{' | '}' | '#' | '-' | '>' | '<' | '*' | '.' | '|')
-    }) {
-        return Err(format!("invalid class name '{name}'"));
-    }
-    Ok(())
+    super::validate_name(name, "class ", &[',', '{', '}', '#', '-', '>', '<', '*', '.', '|'])
 }
 
 fn parse_relation(line_number: usize, line: &str) -> Result<Relation, String> {

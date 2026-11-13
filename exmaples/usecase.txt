@@ -1,0 +1,14 @@
+system Karate Dojo {
+    Practice Basic Kata
+    Bow & Observe Etiquette
+    Perform Controlled Sparring
+    Correct Stance & Form
+}
+
+actor White Belt
+actor(right) Yellow Belt
+
+White Belt --> Practice Basic Kata
+Yellow Belt --> Perform Controlled Sparring
+Practice Basic Kata ..> Bow & Observe Etiquette: include
+Correct Stance & Form ..> Perform Controlled Sparring: extend
