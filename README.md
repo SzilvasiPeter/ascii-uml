@@ -24,6 +24,7 @@ cargo install ascii-uml
 ascii-uml sequence sequence.txt
 ascii-uml class class.txt
 ascii-uml usecase usecase.txt
+ascii-uml architecture architecture.txt
 ```
 
 The input must be a regular file no larger than 4 KiB.
@@ -35,6 +36,7 @@ Run `ascii-uml --help` for all options and the input format.
 - `sequence` - create a sequence diagram from a simple text description.
 - `class` - create a class diagram from a manual row layout.
 - `usecase` - create a use case diagram with one system boundary.
+- `architecture` - create an architecture diagram with grouped services.
 
 #### Sequence input format
 
@@ -166,3 +168,67 @@ White Belt   |   |                             | | Yellow Belt
              |                                 |
              +---------------------------------+
 ```
+
+#### Architecture input format
+
+Each `group` is rendered as one row, top to bottom. Services are listed left to
+right and may be separated by commas, semicolons, or newlines. Connections use
+`-->` between two declared services and may appear before, between, or after
+groups. Groups and services share one namespace.
+
+For example:
+
+```text
+group Sources {
+    Source A, Source B, Source C
+}
+
+group Storage {
+    DB One; DB Two; DB Three
+}
+
+group Output {
+    Brief, Analyst, Delivery
+}
+
+Source A --> DB One
+Source B --> DB Two
+Source C --> DB Three
+DB Two --> Brief
+Brief --> Analyst
+Analyst --> Delivery
+```
+
+produces:
+
+```text
++ Sources ------------------------------------------+
+|                                                   |
+| +-----------+     +-----------+     +-----------+ |
+| | Source A  |     | Source B  |     | Source C  | |
+| +-----------+     +-----------+     +-----------+ |
+|       |                 |                 |       |
++-------+-----------------+-----------------+-------+
+        |                 |                 |
++ Storage ----------------+-----------------+-------+
+|       v                 v                 v       |
+|  +---------+       +---------+      +-----------+ |
+|  | DB One  |       | DB Two  |      | DB Three  | |
+|  +---------+       +---------+      +-----------+ |
+|                         |                         |
++-------------------------+-------------------------+
+        +-----------------+
+        |
++ Output -------------------------------------------+
+|       v                                           |
+|   +-------+        +---------+      +-----------+ |
+|   | Brief |------->| Analyst |----->| Delivery  | |
+|   +-------+        +---------+      +-----------+ |
+|                                                   |
++---------------------------------------------------+
+```
+
+Services in the same group connect horizontally to adjacent columns.
+Services in different groups connect vertically, and only adjacent groups may be connected.
+A connection between different columns adds a horizontal jog in the gap.
+Blank lines and whole-line `#` comments are ignored.

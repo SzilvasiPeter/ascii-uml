@@ -1,6 +1,6 @@
 use std::io::Read;
 
-use crate::diagrams::{class, sequence, usecase};
+use crate::diagrams::{architecture, class, sequence, usecase};
 
 /// Upper bound for input files is 4 KiB to protect against OOM.
 const MAX_INPUT_BYTES: u64 = 4 * 1024;
@@ -9,6 +9,11 @@ const SUBCOMMANDS: &[Subcommand] = &[
     Subcommand { name: "sequence", about: "Create a sequence diagram", run: sequence::run },
     Subcommand { name: "class", about: "Create a class diagram", run: class::run },
     Subcommand { name: "usecase", about: "Create a use case diagram", run: usecase::run },
+    Subcommand {
+        name: "architecture",
+        about: "Create an architecture diagram",
+        run: architecture::run,
+    },
 ];
 
 enum Error {
@@ -33,7 +38,7 @@ struct Subcommand {
 pub fn usage() -> String {
     let commands = SUBCOMMANDS
         .iter()
-        .map(|command| format!("  {:<10} {}", command.name, command.about))
+        .map(|command| format!("  {:<13} {}", command.name, command.about))
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -75,6 +80,12 @@ Use case input format:
   actor --> use case
   use case ..> use case: include
   use case ..> use case: extend
+
+Architecture input format:
+  group Name {{
+    service, service
+  }}
+  service --> service
 ",
         env!("CARGO_PKG_NAME"),
         MAX_INPUT_BYTES / 1024,
@@ -165,6 +176,7 @@ mod tests {
         assert!(usage.contains("sequence"));
         assert!(usage.contains("class"));
         assert!(usage.contains("usecase"));
+        assert!(usage.contains("architecture"));
         assert!(usage.contains("-h, --help"));
         assert!(usage.contains("-V, --version"));
         assert!(usage.contains("sender -> receiver"));
@@ -172,13 +184,15 @@ mod tests {
 
     #[test]
     fn subcommands_are_registered() {
-        assert_eq!(SUBCOMMANDS.len(), 3);
+        assert_eq!(SUBCOMMANDS.len(), 4);
         assert_eq!(SUBCOMMANDS[0].name, "sequence");
         assert_eq!(SUBCOMMANDS[0].about, "Create a sequence diagram");
         assert_eq!(SUBCOMMANDS[1].name, "class");
         assert_eq!(SUBCOMMANDS[1].about, "Create a class diagram");
         assert_eq!(SUBCOMMANDS[2].name, "usecase");
         assert_eq!(SUBCOMMANDS[2].about, "Create a use case diagram");
+        assert_eq!(SUBCOMMANDS[3].name, "architecture");
+        assert_eq!(SUBCOMMANDS[3].about, "Create an architecture diagram");
     }
 
     #[test]
@@ -188,14 +202,18 @@ mod tests {
     }
 
     #[test]
-    fn runs_sequence_subcommand() {
+    fn runs_subcommands() {
         use std::io::Write;
 
-        let mut file = tempfile::NamedTempFile::new().unwrap();
-        file.write_all(b"a -> b: hi\n").unwrap();
+        for (command, input) in
+            [("sequence", "a -> b: hi\n"), ("architecture", "group G {\nA\n}\n")]
+        {
+            let mut file = tempfile::NamedTempFile::new().unwrap();
+            file.write_all(input.as_bytes()).unwrap();
 
-        let args = ["sequence".to_owned(), file.path().display().to_string()];
-        assert!(execute(&args).is_ok());
+            let args = [command.to_owned(), file.path().display().to_string()];
+            assert!(execute(&args).is_ok(), "command: {command}");
+        }
     }
 
     #[test]

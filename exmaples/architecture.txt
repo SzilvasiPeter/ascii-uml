@@ -1,0 +1,18 @@
+group Sources {
+    Source A, Source B, Source C
+}
+
+group Storage {
+    DB One; DB Two; DB Three
+}
+
+group Output {
+    Brief, Analyst, Delivery
+}
+
+Source A --> DB One
+Source B --> DB Two
+Source C --> DB Three
+DB Two --> Brief
+Brief --> Analyst
+Analyst --> Delivery
