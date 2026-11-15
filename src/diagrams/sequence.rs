@@ -56,15 +56,14 @@ impl Sequence {
     }
 
     fn parse(input: &str) -> Result<Self, ParseError> {
-        let parsed_lines = input
-            .lines()
-            .enumerate()
-            .filter_map(|(index, raw_line)| {
-                let line = raw_line.trim();
-                (!line.is_empty()).then_some((index + 1, line))
-            })
-            .map(|(line_number, line)| parse_line(line_number, line))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut parsed_lines = Vec::new();
+        for (index, raw_line) in input.lines().enumerate() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            parsed_lines.push(parse_line(index + 1, line)?);
+        }
 
         if parsed_lines.is_empty() {
             return Err(ParseError::EmptyInput);
@@ -266,6 +265,12 @@ column1 <- column2: do 3
                 Event { from: 1, to: 0, text: "do 3".to_owned() },
             ]
         );
+    }
+
+    #[test]
+    fn ignores_empty_line_and_comments() {
+        let diagram = Sequence::parse("# comment\n\nA->B:hi\n").unwrap();
+        assert_eq!(diagram.participants.len(), 2);
     }
 
     #[test]
