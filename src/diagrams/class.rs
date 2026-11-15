@@ -89,54 +89,52 @@ impl Diagram {
             return Err("layout block is empty".to_owned());
         }
 
-        {
-            let mut positions = HashMap::new();
-            for (row_index, row) in rows.iter().enumerate() {
-                for (column_index, name) in row.iter().enumerate() {
-                    if positions.insert(name.as_str(), (row_index, column_index)).is_some() {
-                        return Err(format!("duplicate class '{name}' in layout"));
-                    }
+        let mut positions = HashMap::new();
+        for (row_index, row) in rows.iter().enumerate() {
+            for (column_index, name) in row.iter().enumerate() {
+                if positions.insert(name.as_str(), (row_index, column_index)).is_some() {
+                    return Err(format!("duplicate class '{name}' in layout"));
                 }
             }
+        }
 
-            let mut same_row_pairs = HashSet::new();
-            for relation in &relations {
-                let source = positions.get(relation.source.as_str()).copied().ok_or_else(|| {
-                    format!("line {}: unknown class '{}'", relation.line, relation.source)
-                })?;
-                let target = positions.get(relation.target.as_str()).copied().ok_or_else(|| {
-                    format!("line {}: unknown class '{}'", relation.line, relation.target)
-                })?;
+        let mut same_row_pairs = HashSet::new();
+        for relation in &relations {
+            let source = positions.get(relation.source.as_str()).copied().ok_or_else(|| {
+                format!("line {}: unknown class '{}'", relation.line, relation.source)
+            })?;
+            let target = positions.get(relation.target.as_str()).copied().ok_or_else(|| {
+                format!("line {}: unknown class '{}'", relation.line, relation.target)
+            })?;
 
-                if relation.source == relation.target {
-                    return Err(format!("line {}: a class cannot relate to itself", relation.line));
-                }
+            if relation.source == relation.target {
+                return Err(format!("line {}: a class cannot relate to itself", relation.line));
+            }
 
-                if source.0 == target.0 {
-                    if source.1.abs_diff(target.1) != 1 {
-                        return Err(format!(
-                            "line {}: target '{}' is not adjacent to '{}' in the same row",
-                            relation.line, relation.target, relation.source
-                        ));
-                    }
-
-                    let pair = if source.1 < target.1 {
-                        (relation.source.as_str(), relation.target.as_str())
-                    } else {
-                        (relation.target.as_str(), relation.source.as_str())
-                    };
-                    if !same_row_pairs.insert(pair) {
-                        return Err(format!(
-                            "line {}: multiple relations between '{}' and '{}'",
-                            relation.line, relation.source, relation.target
-                        ));
-                    }
-                } else if source.0 != target.0 + 1 {
+            if source.0 == target.0 {
+                if source.1.abs_diff(target.1) != 1 {
                     return Err(format!(
-                        "line {}: target '{}' must be in the same row or one row above '{}'",
+                        "line {}: target '{}' is not adjacent to '{}' in the same row",
                         relation.line, relation.target, relation.source
                     ));
                 }
+
+                let pair = if source.1 < target.1 {
+                    (relation.source.as_str(), relation.target.as_str())
+                } else {
+                    (relation.target.as_str(), relation.source.as_str())
+                };
+                if !same_row_pairs.insert(pair) {
+                    return Err(format!(
+                        "line {}: multiple relations between '{}' and '{}'",
+                        relation.line, relation.source, relation.target
+                    ));
+                }
+            } else if source.0 != target.0 + 1 {
+                return Err(format!(
+                    "line {}: target '{}' must be in the same row or one row above '{}'",
+                    relation.line, relation.target, relation.source
+                ));
             }
         }
 
