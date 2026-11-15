@@ -11,7 +11,7 @@ line-numbered errors, the 4 KiB input limit, and
 
 ```text
 group Sources {
-    Source A, Source B, Source C
+    Source A; Source B; Source C
 }
 
 group Storage {
@@ -19,7 +19,7 @@ group Storage {
 }
 
 group Output {
-    Brief, Analyst, Delivery
+    Brief; Analyst; Delivery
 }
 
 Source A --> DB One
@@ -35,12 +35,12 @@ Analyst --> Delivery
 - `group Name {` starts a row; `}` closes it. Groups render top to bottom in
   declaration order.
 - A group is one row. Services render left to right in declaration order,
-  regardless of line breaks. Separate them with `,`, `;`, or a newline.
+  regardless of line breaks. Separate them with `;` or a newline.
 - A service is a bare name. Connections use `A --> B` and have no labels.
 - Connections may appear before, between, or after groups. Resolve endpoints
   after parsing.
 - Groups and services share one namespace; names must be unique.
-- Empty services are errors: `A,,B`, `A,`, and `;A`.
+- Empty services are errors: `A;;B`, `A;`, and `;A`.
 - `#` starts a whole-line comment. Blank lines are ignored.
 - `}` must be on its own line. `group` is reserved at the start of a line.
 
@@ -223,7 +223,7 @@ Reject control characters in names and use `escape_debug` in diagnostics.
 4. Update `README.md` with usage, the commands list, and an architecture input
    format section.
 5. Add `exmaples/architecture.txt` with the example input.
-6. Add tests: golden output; comma/semicolon/newline separators; empty items;
+6. Add tests: golden output; semicolon/newline separators; empty items;
    global columns; same-group connections in both directions; cross-group
    downward/upward straight and jog connections; multiple jogs; title
    overwrite; comments; Unicode names; the validation matrix; determinism.

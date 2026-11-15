@@ -184,7 +184,7 @@ White Belt   |   : include                     | | Yellow Belt
 #### Architecture input format
 
 Each `group` is rendered as one row, top to bottom. Services are listed left to
-right and may be separated by commas, semicolons, or newlines. Connections use
+right and may be separated by semicolons or newlines. Connections use
 `-->` between two declared services and may appear before, between, or after
 groups. Groups and services share one namespace.
 
@@ -192,7 +192,7 @@ For example:
 
 ```text
 group Sources {
-    Source A, Source B, Source C
+    Source A; Source B; Source C
 }
 
 group Storage {
@@ -200,7 +200,7 @@ group Storage {
 }
 
 group Output {
-    Brief, Analyst, Delivery
+    Brief; Analyst; Delivery
 }
 
 Source A --> DB One

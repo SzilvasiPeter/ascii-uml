@@ -1,5 +1,5 @@
 group Sources {
-    Source A, Source B, Source C
+    Source A; Source B; Source C
 }
 
 group Storage {
@@ -7,7 +7,7 @@ group Storage {
 }
 
 group Output {
-    Brief, Analyst, Delivery
+    Brief; Analyst; Delivery
 }
 
 Source A --> DB One

@@ -53,7 +53,7 @@ impl Diagram {
                 } else if text.contains("-->") {
                     return Err(format!("line {line}: connections must be outside groups"));
                 } else {
-                    for part in text.split([',', ';']) {
+                    for part in text.split(';') {
                         let name = part.trim();
                         validate_name(name, "service", line)?;
                         group.services.push((name.to_owned(), line));
@@ -404,26 +404,26 @@ mod tests {
             ("group G {\nA", "unclosed group"),
             ("group G {\n}", "empty group"),
             ("group G {\ngroup H {\nA\n}\n}", "line 2: nested group"),
-            ("group G {\nA, B\nA --> B\n}", "line 3: connections"),
+            ("group G {\nA; B\nA --> B\n}", "line 3: connections"),
             ("}", "line 1: unexpected '}'"),
-            ("group G {\nA,,B\n}", "line 2: empty service"),
-            ("group G {\nA,\n}", "line 2: empty service"),
+            ("group G {\nA;;B\n}", "line 2: empty service"),
+            ("group G {\nA;\n}", "line 2: empty service"),
             ("group G {\n;A\n}", "line 2: empty service"),
-            ("group G {\nA, A\n}", "duplicate name 'A'"),
+            ("group G {\nA; A\n}", "duplicate name 'A'"),
             ("group A {\nB\n}\ngroup G {\nA\n}", "duplicate name 'A'"),
             ("group G {\nA\n}\ngroup G {\nB\n}", "duplicate name 'G'"),
             ("group G {\nA\u{7}\n}", "line 2: invalid service name 'A\\u{7}'"),
-            ("group G {\nA, B\n}\nA B", "line 4: expected exactly one '-->'"),
-            ("group G {\nA, B\n}\nA --> B --> C", "line 4: expected exactly one '-->'"),
-            ("group G {\nA, B\n}\nA -->", "line 4: empty connection side"),
-            ("group G {\nA, B\n}\n--> B", "line 4: empty connection side"),
-            ("group G {\nA, B\n}\nA --> C", "line 4: unknown service 'C'"),
-            ("group G {\nA, B\n}\nC --> B", "line 4: unknown service 'C'"),
-            ("group G {\nA, B\n}\nA --> A", "line 4: cannot connect to itself"),
-            ("group G {\nA, B\n}\nA --> B\nA --> B", "line 5: duplicate connection"),
-            ("group G {\nA, B\n}\nA --> B\nB --> A", "line 5: duplicate connection"),
+            ("group G {\nA; B\n}\nA B", "line 4: expected exactly one '-->'"),
+            ("group G {\nA; B\n}\nA --> B --> C", "line 4: expected exactly one '-->'"),
+            ("group G {\nA; B\n}\nA -->", "line 4: empty connection side"),
+            ("group G {\nA; B\n}\n--> B", "line 4: empty connection side"),
+            ("group G {\nA; B\n}\nA --> C", "line 4: unknown service 'C'"),
+            ("group G {\nA; B\n}\nC --> B", "line 4: unknown service 'C'"),
+            ("group G {\nA; B\n}\nA --> A", "line 4: cannot connect to itself"),
+            ("group G {\nA; B\n}\nA --> B\nA --> B", "line 5: duplicate connection"),
+            ("group G {\nA; B\n}\nA --> B\nB --> A", "line 5: duplicate connection"),
             (
-                "group G {\nA, B, C\n}\nA --> C",
+                "group G {\nA; B; C\n}\nA --> C",
                 "line 4: services 'A' and 'C' must be adjacent within group 'G'",
             ),
             (
@@ -463,7 +463,7 @@ mod tests {
 +-------+",
             ),
             (
-                "group G {\nA, B\n}",
+                "group G {\nA; B\n}",
                 r"+ G --------------+
 |                 |
 | +---+     +---+ |
@@ -473,7 +473,7 @@ mod tests {
 +-----------------+",
             ),
             (
-                "group G {\nA, B\n}\nA --> B",
+                "group G {\nA; B\n}\nA --> B",
                 r"+ G --------------+
 |                 |
 | +---+     +---+ |
@@ -483,7 +483,7 @@ mod tests {
 +-----------------+",
             ),
             (
-                "# comment\n\ngroup G {\n# ignored\nA, B\n}\n\nA --> B\n",
+                "# comment\n\ngroup G {\n# ignored\nA; B\n}\n\nA --> B\n",
                 r"+ G --------------+
 |                 |
 | +---+     +---+ |
@@ -493,7 +493,7 @@ mod tests {
 +-----------------+",
             ),
             (
-                "group G {\nA, B\n}\nB --> A",
+                "group G {\nA; B\n}\nB --> A",
                 r"+ G --------------+
 |                 |
 | +---+     +---+ |
@@ -557,7 +557,7 @@ mod tests {
 +-------+",
             ),
             (
-                "group G1 {\nA, B\n}\ngroup G2 {\nC, D\n}",
+                "group G1 {\nA; B\n}\ngroup G2 {\nC; D\n}",
                 r"+ G1 -------------+
 |                 |
 | +---+     +---+ |
@@ -575,7 +575,7 @@ mod tests {
 +-----------------+",
             ),
             (
-                "group G1 {\nA, B\n}\ngroup G2 {\nC, D\n}\nA --> B\nB --> C",
+                "group G1 {\nA; B\n}\ngroup G2 {\nC; D\n}\nA --> B\nB --> C",
                 r"+ G1 -------------+
 |                 |
 | +---+     +---+ |
@@ -594,7 +594,7 @@ mod tests {
 +-----------------+",
             ),
             (
-                "group G1 {\nA, B, C\n}\ngroup G2 {\nD, E\n}\nA --> E\nC --> E",
+                "group G1 {\nA; B; C\n}\ngroup G2 {\nD; E\n}\nA --> E\nC --> E",
                 r"+ G1 -----------------------+
 |                           |
 | +---+     +---+     +---+ |
