@@ -1,32 +1,33 @@
+use std::collections::HashMap;
 use std::fmt;
 
 #[derive(Debug)]
 enum ParseError {
     EmptyInput,
-    MissingColon { line: usize },
-    MissingOperator { line: usize },
-    MultipleOperators { line: usize },
-    EmptyOperatorSide { line: usize },
-    EmptyDescription { line: usize },
-    SelfMessage { line: usize },
-    ControlCharacter { line: usize },
+    MissingColon { ln: usize },
+    MissingOperator { ln: usize },
+    MultipleOperators { ln: usize },
+    EmptyOperatorSide { ln: usize },
+    EmptyDescription { ln: usize },
+    SelfMessage { ln: usize },
+    ControlCharacter { ln: usize },
 }
 
 impl fmt::Display for ParseError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (line, message) = match *self {
+        let (ln, message) = match *self {
             Self::EmptyInput => (None, "no messages found in input"),
-            Self::MissingColon { line } => (Some(line), "expected ':' before the description"),
-            Self::MissingOperator { line } => (Some(line), "expected '->', '..>', '--', '..'"),
-            Self::MultipleOperators { line } => (Some(line), "expected exactly one operator"),
-            Self::EmptyOperatorSide { line } => (Some(line), "operator cannot have empty sides"),
-            Self::EmptyDescription { line } => (Some(line), "description must not be empty"),
-            Self::SelfMessage { line } => (Some(line), "a sender cannot message itself"),
-            Self::ControlCharacter { line } => (Some(line), "control characters are not allowed"),
+            Self::MissingColon { ln } => (Some(ln), "expected ':' before the description"),
+            Self::MissingOperator { ln } => (Some(ln), "expected one of: --> <-- ..> <.. --- ..."),
+            Self::MultipleOperators { ln } => (Some(ln), "expected exactly one operator"),
+            Self::EmptyOperatorSide { ln } => (Some(ln), "operator cannot have empty sides"),
+            Self::EmptyDescription { ln } => (Some(ln), "description must not be empty"),
+            Self::SelfMessage { ln } => (Some(ln), "a sender cannot message itself"),
+            Self::ControlCharacter { ln } => (Some(ln), "control characters are not allowed"),
         };
 
-        match line {
-            Some(line) => write!(formatter, "line {line}: {message}"),
+        match ln {
+            Some(ln) => write!(formatter, "line {ln}: {message}"),
             None => formatter.write_str(message),
         }
     }
@@ -35,45 +36,43 @@ impl fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LineKind {
-    SolidArrow,
-    DottedArrow,
+enum OperatorKind {
+    SolidArrowRight,
+    SolidArrowLeft,
+    DottedArrowRight,
+    DottedArrowLeft,
     Solid,
     Dotted,
 }
 
-impl LineKind {
+impl OperatorKind {
     const fn is_dotted(self) -> bool {
-        matches!(self, Self::DottedArrow | Self::Dotted)
+        matches!(self, Self::DottedArrowRight | Self::DottedArrowLeft | Self::Dotted)
     }
 
     const fn has_arrow(self) -> bool {
-        matches!(self, Self::SolidArrow | Self::DottedArrow)
+        !matches!(self, Self::Solid | Self::Dotted)
+    }
+
+    const fn points_right(self) -> bool {
+        !matches!(self, Self::SolidArrowLeft | Self::DottedArrowLeft)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Event {
-    from: usize,
-    to: usize,
+    left: String,
+    operator: OperatorKind,
+    right: String,
     text: String,
-    kind: LineKind,
 }
 
 #[derive(Debug, Default)]
 struct Sequence {
-    participants: Vec<String>,
     events: Vec<Event>,
 }
 
 impl Sequence {
-    fn participant_index(&mut self, name: &str) -> usize {
-        self.participants.iter().position(|p| p == name).unwrap_or_else(|| {
-            self.participants.push(name.to_owned());
-            self.participants.len() - 1
-        })
-    }
-
     fn parse(input: &str) -> Result<Self, ParseError> {
         let mut diagram = Self::default();
         for (index, raw_line) in input.lines().enumerate() {
@@ -91,64 +90,67 @@ impl Sequence {
         Ok(diagram)
     }
 
-    fn parse_line(&mut self, line: usize, line_content: &str) -> Result<(), ParseError> {
-        const OPERATORS: [(&str, LineKind, bool); 6] = [
-            ("..>", LineKind::DottedArrow, true),
-            ("<..", LineKind::DottedArrow, false),
-            ("->", LineKind::SolidArrow, true),
-            ("<-", LineKind::SolidArrow, false),
-            ("--", LineKind::Solid, true),
-            ("..", LineKind::Dotted, true),
-        ];
-
-        let (header, message) =
-            line_content.split_once(':').ok_or(ParseError::MissingColon { line })?;
-        let Some((arrow_index, operator, kind, points_right)) = find_operator(header, &OPERATORS)
-        else {
-            return Err(ParseError::MissingOperator { line });
-        };
-        if find_operator(&header[arrow_index + operator.len()..], &OPERATORS).is_some() {
-            return Err(ParseError::MultipleOperators { line });
+    fn parse_line(&mut self, ln: usize, line: &str) -> Result<(), ParseError> {
+        let (event, description) = line.split_once(':').ok_or(ParseError::MissingColon { ln })?;
+        let operators = collect_operators(event);
+        if operators.is_empty() {
+            return Err(ParseError::MissingOperator { ln });
         }
+        if operators.len() != 1 {
+            return Err(ParseError::MultipleOperators { ln });
+        }
+        let (arrow_index, operator_len, operator) = operators[0];
 
-        let message = message.trim();
-        let left = header[..arrow_index].trim();
-        let right = header[arrow_index + operator.len()..].trim();
+        let left = event[..arrow_index].trim();
+        let right = event[arrow_index + operator_len..].trim();
+        let description = description.trim();
         if left.is_empty() || right.is_empty() {
-            return Err(ParseError::EmptyOperatorSide { line });
-        }
-        if [left, right].iter().any(|value| value.contains(['<', '>'])) {
-            return Err(ParseError::MultipleOperators { line });
-        }
-        if message.is_empty() {
-            return Err(ParseError::EmptyDescription { line });
+            return Err(ParseError::EmptyOperatorSide { ln });
         }
         if left == right {
-            return Err(ParseError::SelfMessage { line });
+            return Err(ParseError::SelfMessage { ln });
         }
-        if [left, right, message].iter().any(|value| value.chars().any(char::is_control)) {
-            return Err(ParseError::ControlCharacter { line });
+        if description.is_empty() {
+            return Err(ParseError::EmptyDescription { ln });
+        }
+        if [left, right, description].iter().any(|value| value.chars().any(char::is_control)) {
+            return Err(ParseError::ControlCharacter { ln });
         }
 
-        let left = self.participant_index(left);
-        let right = self.participant_index(right);
-        let (from, to) = if points_right { (left, right) } else { (right, left) };
-        self.events.push(Event { from, to, text: message.to_owned(), kind });
+        let (left, right, text) = (left.to_owned(), right.to_owned(), description.to_owned());
+        self.events.push(Event { left, operator, right, text });
         Ok(())
     }
 
     fn render(&self) -> String {
-        debug_assert!(self.participants.len() >= 2);
+        let mut participants: Vec<&str> = Vec::new();
+        for name in self.events.iter().flat_map(|event| [event.left.as_str(), event.right.as_str()])
+        {
+            if !participants.contains(&name) {
+                participants.push(name);
+            }
+        }
+
+        debug_assert!(participants.len() >= 2);
         debug_assert!(!self.events.is_empty(), "diagram must contain at least one event");
+
+        let positions: HashMap<&str, usize> =
+            participants.iter().copied().enumerate().map(|(index, name)| (name, index)).collect();
+        let endpoints = |event: &Event| {
+            let left = positions[event.left.as_str()];
+            let right = positions[event.right.as_str()];
+            if event.operator.points_right() { (left, right) } else { (right, left) }
+        };
 
         // `| <name> |` needs 4 border char; `| 1` ensures odd width for a midpoint.
         let box_widths: Vec<usize> =
-            self.participants.iter().map(|name| (name.chars().count() + 4) | 1).collect();
+            participants.iter().map(|name| (name.chars().count() + 4) | 1).collect();
         let mut spacings: Vec<usize> =
             box_widths.windows(2).map(|width| width[0] / 2 + width[1] / 2 + 2).collect();
         for event in &self.events {
-            let left = event.from.min(event.to);
-            let right = event.from.max(event.to);
+            let (from, to) = endpoints(event);
+            let left = from.min(to);
+            let right = from.max(to);
 
             let current: usize = spacings[left..right].iter().sum();
             let required = event.text.chars().count() + 3;
@@ -168,7 +170,7 @@ impl Sequence {
         let header_width = (last_center + 1) + (last_box / 2 + 1);
 
         let mut header_rows: [Vec<char>; 3] = core::array::from_fn(|_| vec![' '; header_width]);
-        for (index, name) in self.participants.iter().enumerate() {
+        for (index, name) in participants.iter().copied().enumerate() {
             let left = box_centers[index] - box_widths[index] / 2;
             header_rows = draw_box(header_rows, left, box_widths[index], name);
         }
@@ -178,19 +180,16 @@ impl Sequence {
         lines.push(String::from_iter(empty_row()));
 
         for event in &self.events {
-            let text_start = box_centers[event.from.min(event.to)] + 2;
+            let (from, to) = endpoints(event);
+            let text_start = box_centers[from.min(to)] + 2;
             let mut message_row = empty_row();
             for (offset, character) in event.text.chars().enumerate() {
                 message_row[text_start + offset] = character;
             }
 
             let empty_row = empty_row();
-            let arrow_row = draw_connection(
-                &empty_row,
-                box_centers[event.from],
-                box_centers[event.to],
-                event.kind,
-            );
+            let arrow_row =
+                draw_connection(&empty_row, box_centers[from], box_centers[to], event.operator);
 
             lines.push(String::from_iter(message_row));
             lines.push(String::from_iter(arrow_row));
@@ -205,18 +204,22 @@ pub fn run(input: &str) -> Result<String, String> {
     Sequence::parse(input).map(|diagram| diagram.render()).map_err(|error| error.to_string())
 }
 
-fn find_operator<'a>(
-    header: &str,
-    operators: &'a [(&'a str, LineKind, bool)],
-) -> Option<(usize, &'a str, LineKind, bool)> {
-    for (index, _) in header.char_indices() {
-        for &(operator, kind, points_right) in operators {
-            if header[index..].starts_with(operator) {
-                return Some((index, operator, kind, points_right));
-            }
-        }
-    }
-    None
+fn collect_operators(header: &str) -> Vec<(usize, usize, OperatorKind)> {
+    const OPERATORS: [(&str, OperatorKind); 6] = [
+        ("..>", OperatorKind::DottedArrowRight),
+        ("<..", OperatorKind::DottedArrowLeft),
+        ("-->", OperatorKind::SolidArrowRight),
+        ("<--", OperatorKind::SolidArrowLeft),
+        ("---", OperatorKind::Solid),
+        ("...", OperatorKind::Dotted),
+    ];
+
+    OPERATORS
+        .iter()
+        .flat_map(|&(operator, kind)| {
+            header.match_indices(operator).map(move |(index, _)| (index, operator.len(), kind))
+        })
+        .collect()
 }
 
 // +---+
@@ -259,7 +262,7 @@ fn lifeline_row(column_positions: &[usize], width: usize) -> Vec<char> {
 // +---+ +---+
 //   |     |
 //   |---->|
-fn draw_connection(row: &[char], from_x: usize, to_x: usize, kind: LineKind) -> Vec<char> {
+fn draw_connection(row: &[char], from_x: usize, to_x: usize, kind: OperatorKind) -> Vec<char> {
     let mut res = row.to_vec();
     let (left, right) = (from_x.min(to_x), from_x.max(to_x));
     res[left + 1..right].fill(if kind.is_dotted() { '.' } else { '-' });
@@ -277,161 +280,102 @@ fn draw_connection(row: &[char], from_x: usize, to_x: usize, kind: LineKind) -> 
 mod tests {
     use super::*;
 
-    #[test]
-    fn every_parsed_line_adds_two_participants() {
-        let diagram = Sequence::parse("A -> B: hi\n").unwrap();
-        assert_eq!(diagram.participants.len(), 2);
+    fn event(left: &str, operator: OperatorKind, right: &str, text: &str) -> Event {
+        let (left, right, text) = (left.to_owned(), right.to_owned(), text.to_owned());
+        Event { left, operator, right, text }
     }
 
     #[test]
-    fn parses_both_arrow_directions() {
-        let diagram = Sequence::parse(
-            r"column1 -> column2: do 1
-column2 <- column3: do 2
-column1 <- column2: do 3
-",
-        )
-        .unwrap();
-
-        assert_eq!(diagram.participants, ["column1", "column2", "column3"]);
+    fn parses_each_operator_kind() {
+        let input = r"a --> b: solid right
+                      b <-- a: solid left
+                      a ..> b: dotted right
+                      b <.. c: dotted left
+                      a --- b: solid
+                      b ... c: dotted";
+        let diagram = Sequence::parse(input).unwrap();
         assert_eq!(
             diagram.events,
             [
-                Event { from: 0, to: 1, text: "do 1".to_owned(), kind: LineKind::SolidArrow },
-                Event { from: 2, to: 1, text: "do 2".to_owned(), kind: LineKind::SolidArrow },
-                Event { from: 1, to: 0, text: "do 3".to_owned(), kind: LineKind::SolidArrow },
-            ]
-        );
-    }
-
-    #[test]
-    fn parses_dotted_and_arrowless_lines() {
-        let diagram = Sequence::parse(
-            r"a ..> b: dotted
-b <.. c: dotted back
-a -- b: solid
-b .. c: dotted plain
-",
-        )
-        .unwrap();
-
-        assert_eq!(diagram.participants, ["a", "b", "c"]);
-        assert_eq!(
-            diagram.events,
-            [
-                Event { from: 0, to: 1, text: "dotted".to_owned(), kind: LineKind::DottedArrow },
-                Event {
-                    from: 2,
-                    to: 1,
-                    text: "dotted back".to_owned(),
-                    kind: LineKind::DottedArrow
-                },
-                Event { from: 0, to: 1, text: "solid".to_owned(), kind: LineKind::Solid },
-                Event { from: 1, to: 2, text: "dotted plain".to_owned(), kind: LineKind::Dotted },
+                event("a", OperatorKind::SolidArrowRight, "b", "solid right"),
+                event("b", OperatorKind::SolidArrowLeft, "a", "solid left"),
+                event("a", OperatorKind::DottedArrowRight, "b", "dotted right"),
+                event("b", OperatorKind::DottedArrowLeft, "c", "dotted left"),
+                event("a", OperatorKind::Solid, "b", "solid"),
+                event("b", OperatorKind::Dotted, "c", "dotted"),
             ]
         );
     }
 
     #[test]
     fn ignores_empty_line_and_comments() {
-        let diagram = Sequence::parse("# comment\n\nA->B:hi\n").unwrap();
-        assert_eq!(diagram.participants.len(), 2);
+        let diagram = Sequence::parse("# comment\n\nA-->B:hi\n").unwrap();
+        assert_eq!(diagram.events.len(), 1);
     }
 
     #[test]
-    fn rejects_multiple_operators() {
-        let cases = [
-            "a -><- b: hi\n",
-            "a <--> b: hi\n",
-            "a -> b -> c: hi\n",
-            "a ..> b ..> c: hi\n",
-            "a --> b: hi\n",
-        ];
-
-        for input in cases {
-            let actual = Sequence::parse(input).unwrap_err().to_string();
-            assert_eq!(actual, "line 1: expected exactly one operator");
-        }
-    }
-
-    #[test]
-    fn renders_boxes_and_arrows() {
-        let diagram = Sequence::parse("A -> B: hi\nA <- B: back\n").unwrap();
-        let output = diagram.render();
+    fn renders_boxes() {
+        let output = Sequence::parse("A --> B: hi\n").unwrap().render();
         let lines: Vec<&str> = output.lines().collect();
-
         assert!(lines[0].starts_with("+---+"));
         assert!(lines[1].contains("| A |"));
+        assert!(lines[2].contains("+---+"));
         assert!(lines[3].contains('|'));
-        assert!(lines[5].contains('>'));
-        assert!(lines[8].contains('<'));
     }
 
     #[test]
-    fn renders_dotted_and_arrowless_lines() {
-        let output =
-            Sequence::parse("A ..> B: dotted\nA -- B: solid\nA .. B: plain\n").unwrap().render();
-        let lines: Vec<&str> = output.lines().collect();
-
-        assert!(lines[5].contains("....>"));
-        assert!(lines[8].contains("-----") && !lines[8].contains('>'));
-        assert!(lines[11].contains(".....") && !lines[11].contains('>'));
-    }
-
-    #[test]
-    fn keeps_short_column_gaps_compact() {
-        let diagram = Sequence::parse("aa -> bb: a\nc1 -> c2: aaaaaaa\n").unwrap();
-        let output = diagram.render();
-        let top = output.lines().next().unwrap();
-
-        assert!(top.starts_with("+-----+ +-----+"));
+    fn renders_each_arrow_kind() {
+        let cases = [
+            ("A --> B: x\n", "|---->|"),
+            ("A <-- B: x\n", "|<----|"),
+            ("A ..> B: x\n", "|....>|"),
+            ("A <.. B: x\n", "|<....|"),
+            ("A --- B: x\n", "|-----|"),
+            ("A ... B: x\n", "|.....|"),
+        ];
+        for (input, expected) in cases {
+            let output = Sequence::parse(input).unwrap().render();
+            assert!(output.lines().nth(5).unwrap().contains(expected), "{input}");
+        }
     }
 
     #[test]
     fn widens_only_columns_that_need_more_room() {
-        let diagram = Sequence::parse("aa -> bb: a\nc1 -> c2: aaaaaaa\n").unwrap();
-        let output = diagram.render();
-        let top = output.lines().next().unwrap().trim_end();
-        assert!(top.ends_with("+-----+   +-----+"));
-    }
-
-    #[test]
-    fn rejects_control_characters() {
-        let cases = [
-            "a -> b: \u{1b}[31mred\n",
-            "a\u{1b} -> b: hi\n",
-            "a -> b\u{7f}: hi\n",
-            "a -> b: \u{9b}31mred\n",
-            "a -> b: line\u{0}break\n",
-        ];
-
-        for input in cases {
-            assert_eq!(
-                Sequence::parse(input).unwrap_err().to_string(),
-                "line 1: control characters are not allowed"
-            );
-        }
+        let output = Sequence::parse("aa --> bb: a\nc1 --> c2: aaaaaaa\n").unwrap().render();
+        let top = output.lines().next().unwrap();
+        assert!(top.starts_with("+-----+ +-----+"));
+        assert!(top.trim_end().ends_with("+-----+   +-----+"));
     }
 
     #[test]
     fn allows_printable_unicode() {
-        let diagram = Sequence::parse("café -> 世界: 🙂\n").unwrap();
-        assert_eq!(diagram.participants, ["café", "世界"]);
+        let diagram = Sequence::parse("café --> 世界: 🙂\n").unwrap();
+        assert_eq!(diagram.events[0].left, "café");
+        assert_eq!(diagram.events[0].right, "世界");
         assert_eq!(diagram.events[0].text, "🙂");
     }
 
     #[test]
     fn reports_all_parse_errors() {
         let cases = [
-            ("a -> b\n", "line 1: expected ':' before the description"),
-            ("a -> b: \n", "line 1: description must not be empty"),
-            ("a b: hi\n", "line 1: expected '->', '..>', '--', '..'"),
-            (" -> b: hi\n", "line 1: operator cannot have empty sides"),
-            ("a -> : hi\n", "line 1: operator cannot have empty sides"),
-            ("a -> a: hi\n", "line 1: a sender cannot message itself"),
+            ("a --> b\n", "line 1: expected ':' before the description"),
+            ("a --> b: \n", "line 1: description must not be empty"),
+            ("a b: hi\n", "line 1: expected one of: --> <-- ..> <.. --- ..."),
+            (" --> b: hi\n", "line 1: operator cannot have empty sides"),
+            ("a --> : hi\n", "line 1: operator cannot have empty sides"),
+            ("a --> a: hi\n", "line 1: a sender cannot message itself"),
             ("\n \n", "no messages found in input"),
+            ("a --><-- b: hi\n", "line 1: expected exactly one operator"),
+            ("a <--> b: hi\n", "line 1: expected exactly one operator"),
+            ("a --> b --> c: hi\n", "line 1: expected exactly one operator"),
+            ("a ..> b ..> c: hi\n", "line 1: expected exactly one operator"),
+            ("a ---> b: hi\n", "line 1: expected exactly one operator"),
+            ("a --> b: \u{1b}[31mred\n", "line 1: control characters are not allowed"),
+            ("a\u{1b} --> b: hi\n", "line 1: control characters are not allowed"),
+            ("a --> b\u{7f}: hi\n", "line 1: control characters are not allowed"),
+            ("a --> b: \u{9b}31mred\n", "line 1: control characters are not allowed"),
+            ("a --> b: line\u{0}break\n", "line 1: control characters are not allowed"),
         ];
-
         for (input, expected) in cases {
             assert_eq!(Sequence::parse(input).unwrap_err().to_string(), expected);
         }

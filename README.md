@@ -43,24 +43,24 @@ Run `ascii-uml --help` for all options and the input format.
 Each non-empty line describes one message:
 
 ```text
-sender -> receiver: description
-sender <- receiver: description
+sender --> receiver: description
+sender <-- receiver: description
 sender ..> receiver: dotted description
 sender <.. receiver: dotted description
-sender -- receiver: description without an arrow
-sender .. receiver: dotted description without an arrow
+sender --- receiver: description without an arrow
+sender ... receiver: dotted description without an arrow
 ```
 
-The `->` and `<-` arrows send a request while `..>` and `<..` arrows response with a message.
-The `--` solid line is a direct connection while the `..` dotted line is a loose link or info message.
+The `-->` and `<--` arrows send a request while `..>` and `<..` arrows response with a message.
+The `---` solid line is a direct connection while the `...` dotted line is a loose link or info message.
 
 For example:
 
 ```text
-student -- master: enter room
-student -> master: ask the way
+student --- master: enter room
+student --> master: ask the way
 student <.. master: show the way
-student .. master: student knows the way
+student ... master: student knows the way
 ```
 
 produces:

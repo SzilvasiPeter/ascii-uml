@@ -58,12 +58,12 @@ Options:
 Input must be a regular file no larger than {} KiB.
 
 Sequence input format:
-  sender -> receiver: sender sends request to receiver
-  sender <- receiver: receiver sends request to sender
+  sender --> receiver: sender sends request to receiver
+  sender <-- receiver: receiver sends request to sender
   sender ..> receiver: sender reply to receiver
   sender <.. receiver: receiver reply to sender
-  sender -- receiver: connection established
-  sender .. receiver: wait for a minute
+  sender --- receiver: connection established
+  sender ... receiver: wait for a minute
 
 Class input format:
   Dog --|> Animal
@@ -194,7 +194,7 @@ mod tests {
         assert!(usage.contains("architecture"));
         assert!(usage.contains("-h, --help"));
         assert!(usage.contains("-V, --version"));
-        assert!(usage.contains("sender -> receiver"));
+        assert!(usage.contains("sender --> receiver"));
     }
 
     #[test]
@@ -221,7 +221,7 @@ mod tests {
         use std::io::Write;
 
         for (command, input) in
-            [("sequence", "a -> b: hi\n"), ("architecture", "group G {\nA\n}\n")]
+            [("sequence", "a --> b: hi\n"), ("architecture", "group G {\nA\n}\n")]
         {
             let mut file = tempfile::NamedTempFile::new().unwrap();
             file.write_all(input.as_bytes()).unwrap();
