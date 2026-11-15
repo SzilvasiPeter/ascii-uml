@@ -4,9 +4,9 @@ use std::fmt;
 enum ParseError {
     EmptyInput,
     MissingColon { line: usize },
-    MissingArrow { line: usize },
-    MultipleArrows { line: usize },
-    EmptyArrowSide { line: usize },
+    MissingOperator { line: usize },
+    MultipleOperators { line: usize },
+    EmptyOperatorSide { line: usize },
     EmptyDescription { line: usize },
     SelfMessage { line: usize },
     ControlCharacter { line: usize },
@@ -17,9 +17,9 @@ impl fmt::Display for ParseError {
         let (line, message) = match *self {
             Self::EmptyInput => (None, "no messages found in input"),
             Self::MissingColon { line } => (Some(line), "expected ':' before the description"),
-            Self::MissingArrow { line } => (Some(line), "expected an arrow ('->' or '<-')"),
-            Self::MultipleArrows { line } => (Some(line), "expected exactly one '->' or '<-'"),
-            Self::EmptyArrowSide { line } => (Some(line), "arrow cannot have empty sides"),
+            Self::MissingOperator { line } => (Some(line), "expected '->', '..>', '--', '..'"),
+            Self::MultipleOperators { line } => (Some(line), "expected exactly one operator"),
+            Self::EmptyOperatorSide { line } => (Some(line), "operator cannot have empty sides"),
             Self::EmptyDescription { line } => (Some(line), "description must not be empty"),
             Self::SelfMessage { line } => (Some(line), "a sender cannot message itself"),
             Self::ControlCharacter { line } => (Some(line), "control characters are not allowed"),
@@ -34,11 +34,30 @@ impl fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LineKind {
+    SolidArrow,
+    DottedArrow,
+    Solid,
+    Dotted,
+}
+
+impl LineKind {
+    const fn is_dotted(self) -> bool {
+        matches!(self, Self::DottedArrow | Self::Dotted)
+    }
+
+    const fn has_arrow(self) -> bool {
+        matches!(self, Self::SolidArrow | Self::DottedArrow)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Event {
     from: usize,
     to: usize,
     text: String,
+    kind: LineKind,
 }
 
 #[derive(Debug, Default)]
@@ -74,7 +93,7 @@ impl Sequence {
             let left = diagram.participant_index(&line.left);
             let right = diagram.participant_index(&line.right);
             let (from, to) = if line.points_right { (left, right) } else { (right, left) };
-            diagram.events.push(Event { from, to, text: line.message });
+            diagram.events.push(Event { from, to, text: line.message, kind: line.kind });
         }
 
         Ok(diagram)
@@ -128,7 +147,12 @@ impl Sequence {
             }
 
             let empty_row = empty_row();
-            let arrow_row = draw_arrow(&empty_row, box_centers[event.from], box_centers[event.to]);
+            let arrow_row = draw_connection(
+                &empty_row,
+                box_centers[event.from],
+                box_centers[event.to],
+                event.kind,
+            );
 
             lines.push(String::from_iter(message_row));
             lines.push(String::from_iter(arrow_row));
@@ -145,6 +169,7 @@ struct ParsedLine {
     right: String,
     points_right: bool,
     message: String,
+    kind: LineKind,
 }
 
 pub fn run(input: &str) -> Result<String, String> {
@@ -152,23 +177,33 @@ pub fn run(input: &str) -> Result<String, String> {
 }
 
 fn parse_line(line: usize, line_content: &str) -> Result<ParsedLine, ParseError> {
-    const ARROW_LENGTH: usize = 2;
+    const OPERATORS: [(&str, LineKind, bool); 6] = [
+        ("..>", LineKind::DottedArrow, true),
+        ("<..", LineKind::DottedArrow, false),
+        ("->", LineKind::SolidArrow, true),
+        ("<-", LineKind::SolidArrow, false),
+        ("--", LineKind::Solid, true),
+        ("..", LineKind::Dotted, true),
+    ];
 
     let (header, message) =
         line_content.split_once(':').ok_or(ParseError::MissingColon { line })?;
-    let (arrow_index, points_right) =
-        match (header.matches("->").count(), header.matches("<-").count()) {
-            (1, 0) => (header.find("->").expect("counted arrow"), true),
-            (0, 1) => (header.find("<-").expect("counted arrow"), false),
-            (0, 0) => return Err(ParseError::MissingArrow { line }),
-            _ => return Err(ParseError::MultipleArrows { line }),
-        };
+    let Some((arrow_index, operator, kind, points_right)) = find_operator(header, &OPERATORS)
+    else {
+        return Err(ParseError::MissingOperator { line });
+    };
+    if find_operator(&header[arrow_index + operator.len()..], &OPERATORS).is_some() {
+        return Err(ParseError::MultipleOperators { line });
+    }
 
     let message = message.trim();
     let left = header[..arrow_index].trim();
-    let right = header[arrow_index + ARROW_LENGTH..].trim();
+    let right = header[arrow_index + operator.len()..].trim();
     if left.is_empty() || right.is_empty() {
-        return Err(ParseError::EmptyArrowSide { line });
+        return Err(ParseError::EmptyOperatorSide { line });
+    }
+    if [left, right].iter().any(|value| value.contains(['<', '>'])) {
+        return Err(ParseError::MultipleOperators { line });
     }
     if message.is_empty() {
         return Err(ParseError::EmptyDescription { line });
@@ -181,7 +216,21 @@ fn parse_line(line: usize, line_content: &str) -> Result<ParsedLine, ParseError>
     }
 
     let (left, right, message) = (left.to_owned(), right.to_owned(), message.to_owned());
-    Ok(ParsedLine { left, right, points_right, message })
+    Ok(ParsedLine { left, right, points_right, message, kind })
+}
+
+fn find_operator<'a>(
+    header: &str,
+    operators: &'a [(&'a str, LineKind, bool)],
+) -> Option<(usize, &'a str, LineKind, bool)> {
+    for (index, _) in header.char_indices() {
+        for &(operator, kind, points_right) in operators {
+            if header[index..].starts_with(operator) {
+                return Some((index, operator, kind, points_right));
+            }
+        }
+    }
+    None
 }
 
 // +---+
@@ -224,14 +273,16 @@ fn lifeline_row(column_positions: &[usize], width: usize) -> Vec<char> {
 // +---+ +---+
 //   |     |
 //   |---->|
-fn draw_arrow(row: &[char], from_x: usize, to_x: usize) -> Vec<char> {
+fn draw_connection(row: &[char], from_x: usize, to_x: usize, kind: LineKind) -> Vec<char> {
     let mut res = row.to_vec();
-    if from_x < to_x {
-        res[from_x + 1..to_x].fill('-');
-        res[to_x - 1] = '>';
-    } else {
-        res[to_x + 1..from_x].fill('-');
-        res[to_x + 1] = '<';
+    let (left, right) = (from_x.min(to_x), from_x.max(to_x));
+    res[left + 1..right].fill(if kind.is_dotted() { '.' } else { '-' });
+    if kind.has_arrow() {
+        if from_x < to_x {
+            res[right - 1] = '>';
+        } else {
+            res[left + 1] = '<';
+        }
     }
     res
 }
@@ -260,9 +311,37 @@ column1 <- column2: do 3
         assert_eq!(
             diagram.events,
             [
-                Event { from: 0, to: 1, text: "do 1".to_owned() },
-                Event { from: 2, to: 1, text: "do 2".to_owned() },
-                Event { from: 1, to: 0, text: "do 3".to_owned() },
+                Event { from: 0, to: 1, text: "do 1".to_owned(), kind: LineKind::SolidArrow },
+                Event { from: 2, to: 1, text: "do 2".to_owned(), kind: LineKind::SolidArrow },
+                Event { from: 1, to: 0, text: "do 3".to_owned(), kind: LineKind::SolidArrow },
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_dotted_and_arrowless_lines() {
+        let diagram = Sequence::parse(
+            r"a ..> b: dotted
+b <.. c: dotted back
+a -- b: solid
+b .. c: dotted plain
+",
+        )
+        .unwrap();
+
+        assert_eq!(diagram.participants, ["a", "b", "c"]);
+        assert_eq!(
+            diagram.events,
+            [
+                Event { from: 0, to: 1, text: "dotted".to_owned(), kind: LineKind::DottedArrow },
+                Event {
+                    from: 2,
+                    to: 1,
+                    text: "dotted back".to_owned(),
+                    kind: LineKind::DottedArrow
+                },
+                Event { from: 0, to: 1, text: "solid".to_owned(), kind: LineKind::Solid },
+                Event { from: 1, to: 2, text: "dotted plain".to_owned(), kind: LineKind::Dotted },
             ]
         );
     }
@@ -274,14 +353,18 @@ column1 <- column2: do 3
     }
 
     #[test]
-    fn rejects_multiple_arrows() {
-        let cases = ["a -><- b: hi\n", "a <--> b: hi\n", "a -> b -> c: hi\n"];
+    fn rejects_multiple_operators() {
+        let cases = [
+            "a -><- b: hi\n",
+            "a <--> b: hi\n",
+            "a -> b -> c: hi\n",
+            "a ..> b ..> c: hi\n",
+            "a --> b: hi\n",
+        ];
 
         for input in cases {
-            assert_eq!(
-                Sequence::parse(input).unwrap_err().to_string(),
-                "line 1: expected exactly one '->' or '<-'"
-            );
+            let actual = Sequence::parse(input).unwrap_err().to_string();
+            assert_eq!(actual, "line 1: expected exactly one operator");
         }
     }
 
@@ -296,6 +379,17 @@ column1 <- column2: do 3
         assert!(lines[3].contains('|'));
         assert!(lines[5].contains('>'));
         assert!(lines[8].contains('<'));
+    }
+
+    #[test]
+    fn renders_dotted_and_arrowless_lines() {
+        let output =
+            Sequence::parse("A ..> B: dotted\nA -- B: solid\nA .. B: plain\n").unwrap().render();
+        let lines: Vec<&str> = output.lines().collect();
+
+        assert!(lines[5].contains("....>"));
+        assert!(lines[8].contains("-----") && !lines[8].contains('>'));
+        assert!(lines[11].contains(".....") && !lines[11].contains('>'));
     }
 
     #[test]
@@ -345,9 +439,9 @@ column1 <- column2: do 3
         let cases = [
             ("a -> b\n", "line 1: expected ':' before the description"),
             ("a -> b: \n", "line 1: description must not be empty"),
-            ("a b: hi\n", "line 1: expected an arrow ('->' or '<-')"),
-            (" -> b: hi\n", "line 1: arrow cannot have empty sides"),
-            ("a -> : hi\n", "line 1: arrow cannot have empty sides"),
+            ("a b: hi\n", "line 1: expected '->', '..>', '--', '..'"),
+            (" -> b: hi\n", "line 1: operator cannot have empty sides"),
+            ("a -> : hi\n", "line 1: operator cannot have empty sides"),
             ("a -> a: hi\n", "line 1: a sender cannot message itself"),
             ("\n \n", "no messages found in input"),
         ];

@@ -58,8 +58,12 @@ Options:
 Input must be a regular file no larger than {} KiB.
 
 Sequence input format:
-  sender -> receiver: description
-  sender <- receiver: description
+  sender -> receiver: sender sends request to receiver
+  sender <- receiver: receiver sends request to sender
+  sender ..> receiver: sender reply to receiver
+  sender <.. receiver: receiver reply to sender
+  sender -- receiver: connection established
+  sender .. receiver: wait for a minute
 
 Class input format:
   layout {{
