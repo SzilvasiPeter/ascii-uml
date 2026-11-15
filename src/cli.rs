@@ -66,30 +66,41 @@ Sequence input format:
   sender .. receiver: wait for a minute
 
 Class input format:
+  Dog --|> Animal
+  SmartLock ..|> LockableDevice
+  Car *-- Engine
+  Student --> Course
+
   layout {{
-    sender, receiver
+      Dog, Animal
+      SmartLock, LockableDevice
+      Car, Engine
+      Student, Course
   }}
-  sender --|> receiver
-  sender ..|> receiver
-  sender *-- receiver
-  sender --> receiver
 
 Use case input format:
   system System Name {{
-    use case
+      Top use case
+      Middle use case
+      Bottom use case
   }}
-  actor Left Actor
-  actor(left) Another Left Actor
+
+  actor Implicit Left
+  actor(left) Explicit Left
   actor(right) Right Actor
-  actor --> use case
-  use case ..> use case: include
-  use case ..> use case: extend
+
+  Implicit Left --> Top use case
+  Right Actor --> Top use case
+  Explicit Left --> Bottom use case
+  Middle use case ..> Top use case: include
+  Middle use case ..> Bottom use case: extend
 
 Architecture input format:
   group Name {{
-    service, service
+    service, database
   }}
-  service --> service
+
+  service --> database
 ",
         env!("CARGO_PKG_NAME"),
         MAX_INPUT_BYTES / 1024,
