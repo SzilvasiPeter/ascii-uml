@@ -286,16 +286,30 @@ fn draw_same_row(band: &mut [Vec<char>], relation: &Relation, positions: &HashMa
     let (_, horizontal) = relation.kind.line_chars();
 
     band[1][start..end].fill(horizontal);
-    if relation.kind == Kind::Composition {
-        if source.col < target.col {
-            band[1][start] = '*';
-        } else {
-            band[1][end - 1] = '*';
+    match relation.kind {
+        Kind::Composition => {
+            if source.col < target.col {
+                band[1][start] = '*';
+            } else {
+                band[1][end - 1] = '*';
+            }
         }
-    } else if target.col > source.col {
-        band[1][end - 1] = '>';
-    } else {
-        band[1][start] = '<';
+        Kind::Generalization | Kind::Realization => {
+            if target.col > source.col {
+                band[1][end - 2] = '|';
+                band[1][end - 1] = '>';
+            } else {
+                band[1][start] = '<';
+                band[1][start + 1] = '|';
+            }
+        }
+        Kind::Association => {
+            if target.col > source.col {
+                band[1][end - 1] = '>';
+            } else {
+                band[1][start] = '<';
+            }
+        }
     }
 }
 
@@ -316,7 +330,11 @@ fn render_channel(
         let lane = index + 1;
         let (vertical, horizontal) = relation.kind.line_chars();
 
-        canvas[0][target_x] = if relation.kind == Kind::Composition { vertical } else { '^' };
+        canvas[0][target_x] = match relation.kind {
+            Kind::Composition => vertical,
+            Kind::Generalization | Kind::Realization => 'A',
+            Kind::Association => '^',
+        };
         for row in canvas.iter_mut().take(lane + 1).skip(1) {
             row[target_x] = vertical;
         }
@@ -353,14 +371,28 @@ mod tests {
                 "A --|> B",
                 "\
 +---+     +---+
-| A |---->| B |
+| A |---|>| B |
 +---+     +---+",
             ),
             (
                 "A ..|> B",
                 "\
 +---+     +---+
-| A |....>| B |
+| A |...|>| B |
++---+     +---+",
+            ),
+            (
+                "B --|> A",
+                "\
++---+     +---+
+| A |<|---| B |
++---+     +---+",
+            ),
+            (
+                "B ..|> A",
+                "\
++---+     +---+
+| A |<|...| B |
 +---+     +---+",
             ),
             (
@@ -408,7 +440,7 @@ mod tests {
 +---+
 | A |
 +---+
-  ^
+  A
   |
   |
 +---+
@@ -421,7 +453,7 @@ mod tests {
 +---+
 | A |
 +---+
-  ^
+  A
   :
   :
 +---+
@@ -491,7 +523,7 @@ mod tests {
             "+---+     +---+\n",
             "| X |     | A |\n",
             "+---+     +---+\n",
-            "            ^\n",
+            "            A\n",
             "  +.........+\n",
             "  :\n",
             "+---+\n",

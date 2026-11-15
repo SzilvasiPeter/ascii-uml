@@ -73,8 +73,8 @@ composition, the diamond stays on the source.
 
 | Syntax   | Relation       | Rust meaning                | Line style | Head             |
 | -------- | -------------- | --------------------------- | ---------- | ---------------- |
-| `--\|>`  | Generalization | `trait Child: Parent`       | solid      | `^` at target    |
-| `..\|>`  | Realization    | `impl Trait for Struct`     | dotted     | `^` at target    |
+| `--\|>`  | Generalization | `trait Child: Parent`       | solid      | `A`/`<\|`/`-\|>` at target |
+| `..\|>`  | Realization    | `impl Trait for Struct`     | dotted     | `A`/`<\|`/`-\|>` at target |
 | `*--`    | Composition    | `struct S { f: T }`         | solid      | `*` at source    |
 | `-->`    | Association    | `struct S<'a> { f: &'a T }` | solid      | `^`/`<`/`>` at target |
 
@@ -149,8 +149,8 @@ second relation between the same pair is an error.
 | Dotted vertical     | `:`   |
 | Dotted horizontal   | `.`   |
 | Corner              | `+`   |
-| Upward head         | `^`   |
-| Left/right head     | `<` / `>` |
+| Upward head         | `A`   |
+| Left/right head     | `<\|` / `-\|>` (generalization/realization), `<` / `>` (association) |
 | Composition diamond | `*`   |
 
 ### Ports
