@@ -45,31 +45,43 @@ Each non-empty line describes one message:
 ```text
 sender -> receiver: description
 sender <- receiver: description
+sender ..> receiver: dotted description
+sender <.. receiver: dotted description
+sender -- receiver: description without an arrow
+sender .. receiver: dotted description without an arrow
 ```
 
-The `->` left arrow sends from the left participant to the right participant. The `<-` right arrow sends from
-the right participant to the left participant.
+The `->` and `<-` arrows send a request while `..>` and `<..` arrows response with a message.
+The `--` solid line is a direct connection while the `..` dotted line is a loose link or info message.
 
 For example:
 
 ```text
+student -- master: enter room
 student -> master: ask the way
-student <- master: show the way
+student <.. master: show the way
+student .. master: student knows the way
 ```
 
 produces:
 
 ```text
-+---------+    +---------+
-| student |    | master  |
-+---------+    +---------+
-     |              |
-     | ask the way  |
-     |------------->|
-     |              |
-     | show the way |
-     |<-------------|
-     |              |
++---------+             +---------+
+| student |             | master  |
++---------+             +---------+
+     |                       |
+     | enter room            |
+     |-----------------------|
+     |                       |
+     | ask the way           |
+     |---------------------->|
+     |                       |
+     | show the way          |
+     |<......................|
+     |                       |
+     | student knows the way |
+     |.......................|
+     |                       |
 ```
 
 #### Class input format
@@ -87,7 +99,7 @@ a class to one in the row directly above. The relation operators are:
 The `layout` block assigns classes to rows, top to bottom. Names in a row are comma-separated and rendered left to right:
 
 ```text
-Master --|> Person
+Master --|> Person 
 Student ..|> Trainee
 Master *-- SecretScroll
 Student --> Master
@@ -105,7 +117,7 @@ produces:
 +---------+
 | Person  |
 +---------+
-     ^
+     A
      |
      |
 +---------+     +---------------+
@@ -115,7 +127,7 @@ produces:
      |
      |
 +---------+     +---------+
-| Student |....>| Trainee |
+| Student |...|>| Trainee |
 +---------+     +---------+
 ```
 

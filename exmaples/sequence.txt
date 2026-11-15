@@ -1,2 +1,0 @@
-student -> master: ask the way
-student <- master: show the way

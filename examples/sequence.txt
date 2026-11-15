@@ -1,0 +1,4 @@
+student -- master: enter room
+student -> master: ask the way
+student <.. master: show the way
+student .. master: student knows the way
