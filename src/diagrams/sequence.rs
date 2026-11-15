@@ -75,28 +75,66 @@ impl Sequence {
     }
 
     fn parse(input: &str) -> Result<Self, ParseError> {
-        let mut parsed_lines = Vec::new();
+        let mut diagram = Self::default();
         for (index, raw_line) in input.lines().enumerate() {
             let line = raw_line.trim();
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
-            parsed_lines.push(parse_line(index + 1, line)?);
+            diagram.parse_line(index + 1, line)?;
         }
 
-        if parsed_lines.is_empty() {
+        if diagram.events.is_empty() {
             return Err(ParseError::EmptyInput);
         }
 
-        let mut diagram = Self::default();
-        for line in parsed_lines {
-            let left = diagram.participant_index(&line.left);
-            let right = diagram.participant_index(&line.right);
-            let (from, to) = if line.points_right { (left, right) } else { (right, left) };
-            diagram.events.push(Event { from, to, text: line.message, kind: line.kind });
+        Ok(diagram)
+    }
+
+    fn parse_line(&mut self, line: usize, line_content: &str) -> Result<(), ParseError> {
+        const OPERATORS: [(&str, LineKind, bool); 6] = [
+            ("..>", LineKind::DottedArrow, true),
+            ("<..", LineKind::DottedArrow, false),
+            ("->", LineKind::SolidArrow, true),
+            ("<-", LineKind::SolidArrow, false),
+            ("--", LineKind::Solid, true),
+            ("..", LineKind::Dotted, true),
+        ];
+
+        let (header, message) =
+            line_content.split_once(':').ok_or(ParseError::MissingColon { line })?;
+        let Some((arrow_index, operator, kind, points_right)) = find_operator(header, &OPERATORS)
+        else {
+            return Err(ParseError::MissingOperator { line });
+        };
+        if find_operator(&header[arrow_index + operator.len()..], &OPERATORS).is_some() {
+            return Err(ParseError::MultipleOperators { line });
         }
 
-        Ok(diagram)
+        let message = message.trim();
+        let left = header[..arrow_index].trim();
+        let right = header[arrow_index + operator.len()..].trim();
+        if left.is_empty() || right.is_empty() {
+            return Err(ParseError::EmptyOperatorSide { line });
+        }
+        if [left, right].iter().any(|value| value.contains(['<', '>'])) {
+            return Err(ParseError::MultipleOperators { line });
+        }
+        if message.is_empty() {
+            return Err(ParseError::EmptyDescription { line });
+        }
+        if left == right {
+            return Err(ParseError::SelfMessage { line });
+        }
+        if [left, right, message].iter().any(|value| value.chars().any(char::is_control)) {
+            return Err(ParseError::ControlCharacter { line });
+        }
+
+        let left = self.participant_index(left);
+        let right = self.participant_index(right);
+        let (from, to) = if points_right { (left, right) } else { (right, left) };
+        self.events.push(Event { from, to, text: message.to_owned(), kind });
+        Ok(())
     }
 
     fn render(&self) -> String {
@@ -163,60 +201,8 @@ impl Sequence {
     }
 }
 
-#[derive(Debug)]
-struct ParsedLine {
-    left: String,
-    right: String,
-    points_right: bool,
-    message: String,
-    kind: LineKind,
-}
-
 pub fn run(input: &str) -> Result<String, String> {
     Sequence::parse(input).map(|diagram| diagram.render()).map_err(|error| error.to_string())
-}
-
-fn parse_line(line: usize, line_content: &str) -> Result<ParsedLine, ParseError> {
-    const OPERATORS: [(&str, LineKind, bool); 6] = [
-        ("..>", LineKind::DottedArrow, true),
-        ("<..", LineKind::DottedArrow, false),
-        ("->", LineKind::SolidArrow, true),
-        ("<-", LineKind::SolidArrow, false),
-        ("--", LineKind::Solid, true),
-        ("..", LineKind::Dotted, true),
-    ];
-
-    let (header, message) =
-        line_content.split_once(':').ok_or(ParseError::MissingColon { line })?;
-    let Some((arrow_index, operator, kind, points_right)) = find_operator(header, &OPERATORS)
-    else {
-        return Err(ParseError::MissingOperator { line });
-    };
-    if find_operator(&header[arrow_index + operator.len()..], &OPERATORS).is_some() {
-        return Err(ParseError::MultipleOperators { line });
-    }
-
-    let message = message.trim();
-    let left = header[..arrow_index].trim();
-    let right = header[arrow_index + operator.len()..].trim();
-    if left.is_empty() || right.is_empty() {
-        return Err(ParseError::EmptyOperatorSide { line });
-    }
-    if [left, right].iter().any(|value| value.contains(['<', '>'])) {
-        return Err(ParseError::MultipleOperators { line });
-    }
-    if message.is_empty() {
-        return Err(ParseError::EmptyDescription { line });
-    }
-    if left == right {
-        return Err(ParseError::SelfMessage { line });
-    }
-    if [left, right, message].iter().any(|value| value.chars().any(char::is_control)) {
-        return Err(ParseError::ControlCharacter { line });
-    }
-
-    let (left, right, message) = (left.to_owned(), right.to_owned(), message.to_owned());
-    Ok(ParsedLine { left, right, points_right, message, kind })
 }
 
 fn find_operator<'a>(
