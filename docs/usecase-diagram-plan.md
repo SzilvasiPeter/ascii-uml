@@ -91,7 +91,7 @@ Use cases are one line each, with three blank rows between consecutive use
 cases. The three rows hold a port stem, a label, and an arrow or continuation:
 
 ```text
-+-------- System --------+
++ System ----------------+
 |                        |
 |  ( First use case )    |
 |                        |
@@ -129,14 +129,15 @@ canvas_h       = max(boundary_h, actor_h)
 Use case `j` is at row `2 + 4 * j`, column `uc_left`. Its width is
 `name.chars().count() + 4`, rendered `( name )`.
 
-The title block `" " + title + " "` is centered in the top border:
+The title block `" " + title + " "` is left-aligned in the top border, starting
+directly after the top-left corner:
 
 ```text
-title_start = boundary_left + 1 + (inner_w - title.chars().count() - 2) / 2
+title_start = boundary_left + 1
 ```
 
-`inner_w` is at least `title.chars().count() + 4`, so the title block has at
-least one `-` on each side.
+`inner_w` is at least `title.chars().count() + 4`, so the title block always
+fits with at least one `-` on its right.
 
 ### Actor blocks
 
@@ -297,7 +298,7 @@ Expected output. Associations enter from the left/right. The include from
 from `Place order` to `Pay` is direct. Both arrows enter `Pay` from the top:
 
 ```text
-   o       +---- Online Shop -----+          o
+   o       + Online Shop ---------+          o
   /|\----+ |                      | +-------/|\
   / \    +-+-( Browse catalog )   | |       / \
 Customer | |   |                  | | Payment Gateway

@@ -300,7 +300,6 @@ struct Layout {
     boundary_left: usize,
     boundary_right: usize,
     boundary_h: usize,
-    inner_w: usize,
     right_col: usize,
     uc_left: usize,
     text_w: usize,
@@ -347,7 +346,6 @@ impl Layout {
             boundary_left,
             boundary_right,
             boundary_h,
-            inner_w,
             right_col,
             uc_left,
             text_w,
@@ -385,8 +383,7 @@ impl Diagram {
             row[left] = '|';
             row[right] = '|';
         }
-        let start = left + 1 + (layout.inner_w - self.system.chars().count() - 2) / 2;
-        draw_text(canvas, 0, start, &format!(" {} ", self.system));
+        draw_text(canvas, 0, left + 1, &format!(" {} ", self.system));
     }
 
     fn draw_use_cases(&self, layout: &Layout, canvas: &mut [Vec<char>]) {
@@ -562,7 +559,7 @@ Place order ..> Pay: extend
 Payment Gateway --> Pay
 ";
         let expected = concat!(
-            "   o       +---- Online Shop -----+          o\n",
+            "   o       + Online Shop ---------+          o\n",
             "  /|\\----+ |                      | +-------/|\\\n",
             "  / \\    +-+-( Browse catalog )   | |       / \\\n",
             "Customer | |   |                  | | Payment Gateway\n",

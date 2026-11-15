@@ -150,7 +150,7 @@ two use cases and must end with either `: include` or `: extend`.
 produces:
 
 ```text
-    o        +---------- Karate Dojo ----------+        o
+    o        + Karate Dojo --------------------+        o
    /|\-----+ |                                 | +-----/|\
    / \     +-+-( Practice Basic Kata )         | |     / \
 White Belt   |   |                             | | Yellow Belt
