@@ -162,11 +162,11 @@ two use cases and must end with either `: include` or `: extend`.
 produces:
 
 ```text
-    o        + Karate Dojo --------------------+        o
-   /|\-----+ |                                 | +-----/|\
-   / \     +-+-( Practice Basic Kata )         | |     / \
-White Belt   |   |                             | | Yellow Belt
-             |   include                       | |
+             + Karate Dojo --------------------+
+    o        |                                 |        o
+   /|\-----+-+-( Practice Basic Kata )         | +-----/|\
+   / \       |   :                             | |     / \
+White Belt   |   : include                     | | Yellow Belt
              |   v                             | |
              | ( Bow & Observe Etiquette )     | |
              |                                 | |
@@ -174,8 +174,8 @@ White Belt   |   |                             | | Yellow Belt
              |                                 | |
              | ( Perform Controlled Sparring )-+-+
              |     ^                           |
-             |     extend                      |
-             |     |                           |
+             |     : extend                    |
+             |     :                           |
              | ( Correct Stance & Form )       |
              |                                 |
              +---------------------------------+

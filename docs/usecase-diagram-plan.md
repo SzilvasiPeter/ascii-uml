@@ -112,7 +112,7 @@ L, R           = max actor block width on each side (0 if no actors)
 left_gutter    = 2 * n_l + 1 if n_l > 0 else 0
 boundary_left  = L + left_gutter
 uc_left        = boundary_left + 2
-text_w         = max(uc_w, 11 if any dependency else 0)
+text_w         = max(uc_w, 13 if any dependency else 0)
 n_lanes        = number of dependencies between non-adjacent use cases
 inner_w        = text_w + 2 + 2 * n_lanes
 inner_w        = max(inner_w, title.chars().count() + 4)
@@ -121,7 +121,7 @@ boundary_right = boundary_left + boundary_w - 1
 right_gutter   = 2 * n_r + 1 if n_r > 0 else 0
 right_col      = boundary_right + 1 + right_gutter
 boundary_h     = 4 * n_uc + 1
-actor_h        = 0 if max(n_l, n_r) == 0 else 5 * max(n_l, n_r) - 1
+actor_h        = 0 if max(n_l, n_r) == 0 else 5 * max(n_l, n_r)
 canvas_w       = max(boundary_right + 1, right_col + R if n_r > 0 else 0)
 canvas_h       = max(boundary_h, actor_h)
 ```
@@ -143,7 +143,9 @@ fits with at least one `-` on its right.
 
 Each actor is a four-row block, stacked in declaration order per side with one
 blank row between blocks. Actors with no associations are still rendered.
-Block `i` starts at row `5 * i`. Block width is
+Actor blocks are padded by one row at the top so that the arms row of the first
+actor aligns with the first use case row, keeping its association horizontal.
+Block `i` starts at row `1 + 5 * i`. Block width is
 `max(3, name.chars().count())`.
 
 ```text
@@ -186,7 +188,7 @@ lanes and port sets are independent.
 Actors are not sorted or aligned with use cases. Actor `i` has:
 
 ```text
-arms_row   = 5 * i + 1
+arms_row   = 1 + 5 * i + 1
 left_lane  = boundary_left - 2 - 2 * i
 right_lane = boundary_right + 2 + 2 * i
 ```
@@ -215,15 +217,15 @@ upward   (t < s): port row s-1, label row s-2, arrow row t+1, arrow '^'
 ```
 
 If the use cases are adjacent (`abs(source index - target index) == 1`), draw
-the dependency directly at its port column: `|` on the port row, the label on
-the label row, and the arrow on the arrow row.
+the dependency directly at its port column: `:` on the port row, `: ` and the
+label on the label row, and the arrow on the arrow row.
 
 Otherwise:
 
-1. Draw `|` at the source port column on the port row, then the label at the
-   same column on the label row.
+1. Draw `:` at the source port column on the port row, then `: ` and the label
+   at the same column on the label row.
 2. After the label, draw `.` to the lane and `+` at the lane.
-3. Draw `|` along the lane to the arrow row; put `+` at the lane corner.
+3. Draw `:` along the lane to the arrow row; put `+` at the lane corner.
 4. Draw `.` from the lane to the target port column and put the arrow there.
 
 For example, the include from `Browse catalog` to `Pay` is non-adjacent and
@@ -231,11 +233,11 @@ uses a lane; the extend from `Place order` to `Pay` is direct:
 
 ```text
 ( Browse catalog )
-  |
-include..........+
-( Place order )  |
-  |              |
-extend           |
+  :
+  : include.......+
+( Place order )  :
+  :              :
+  : extend       :
   v..............+
 ( Pay )
 ```
@@ -245,8 +247,8 @@ An upward dependency is symmetric; its label starts at `up_x`:
 ```text
 ( A )
   ^
-extend
-  |
+  : extend
+  :
 ( B )
 ```
 
@@ -261,7 +263,7 @@ Draw in this order: boundary and use cases, actors, associations, dependencies.
 When writing a line into an occupied cell:
 
 - space → write the glyph;
-- any horizontal glyph (`-` or `.`) plus any vertical glyph (`|`) → `+`;
+- any horizontal glyph (`-` or `.`) plus any vertical glyph (`|` or `:`) → `+`;
 - same direction → keep the line;
 - `+` is never downgraded.
 
@@ -298,15 +300,15 @@ Expected output. Associations enter from the left/right. The include from
 from `Place order` to `Pay` is direct. Both arrows enter `Pay` from the top:
 
 ```text
-   o       + Online Shop ---------+          o
-  /|\----+ |                      | +-------/|\
-  / \    +-+-( Browse catalog )   | |       / \
-Customer | |   |                  | | Payment Gateway
-         | |   include..........+ | |
-         | |                    | | |
-         +-+-( Place order )    | | |
-           |   |                | | |
-           |   extend           | | |
+           + Online Shop ---------+
+   o       |                      |          o
+  /|\----+-+-( Browse catalog )   | +-------/|\
+  / \    | |   :                  | |       / \
+Customer | |   : include........+ | | Payment Gateway
+         | |                    : | |
+         +-+-( Place order )    : | |
+           |   :                : | |
+           |   : extend         : | |
            |   v................+ | |
            | ( Pay )--------------+-+
            |                      |

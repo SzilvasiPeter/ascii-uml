@@ -330,12 +330,12 @@ impl Layout {
             .count();
         let boundary_left = left_max + if n_l > 0 { 2 * n_l + 1 } else { 0 };
         let uc_left = boundary_left + 2;
-        let text_w = if diagram.dependencies.is_empty() { uc_w } else { uc_w.max(11) };
+        let text_w = if diagram.dependencies.is_empty() { uc_w } else { uc_w.max(13) };
         let inner_w = (text_w + 2 + 2 * n_lanes).max(diagram.system.chars().count() + 4);
         let boundary_right = boundary_left + inner_w + 1;
         let right_col = boundary_right + 1 + if n_r > 0 { 2 * n_r + 1 } else { 0 };
         let boundary_h = 4 * diagram.use_cases.len() + 1;
-        let actor_h = if n_l.max(n_r) == 0 { 0 } else { 5 * n_l.max(n_r) - 1 };
+        let actor_h = if n_l.max(n_r) == 0 { 0 } else { 5 * n_l.max(n_r) };
         let canvas_w = if n_r > 0 {
             (boundary_right + 1).max(right_col + right_max)
         } else {
@@ -395,7 +395,7 @@ impl Diagram {
     fn draw_actors(&self, layout: &Layout, canvas: &mut [Vec<char>]) {
         for (actor, index) in self.actors.iter().zip(self.actor_indices()) {
             let start = if actor.side == Side::Left { 0 } else { layout.right_col };
-            let (width, top) = (actor.width(), 5 * index);
+            let (width, top) = (actor.width(), 1 + 5 * index);
             let left = start + (width - 3) / 2;
             draw_text(canvas, top, left, " o ");
             draw_text(canvas, top + 1, left, "/|\\");
@@ -415,7 +415,7 @@ impl Diagram {
                 self.associations.iter().filter(|association| association.actor == actor.name);
             let Some(first) = linked.next() else { continue };
             let figure_left = (actor.width() - 3) / 2;
-            let arms_row = 5 * index + 1;
+            let arms_row = 1 + 5 * index + 1;
             let (lane, start) = match actor.side {
                 Side::Left => (layout.boundary_left - 2 - 2 * index, figure_left + 3),
                 Side::Right => {
@@ -447,28 +447,24 @@ impl Diagram {
             } else {
                 (up_x, source_row - 1, source_row - 2, target_row + 1, '^')
             };
-            draw_line(canvas, port_row, port, '|');
+            draw_line(canvas, port_row, port, ':');
+            let label = dependency.kind.label();
             if dependency.source.abs_diff(dependency.target) != 1 {
                 let lane = layout.boundary_left + 3 + layout.text_w + 2 * next_lane;
                 next_lane += 1;
-                draw_hline(
-                    canvas,
-                    label_row,
-                    port + dependency.kind.label().chars().count(),
-                    lane - 1,
-                    '.',
-                );
+                draw_hline(canvas, label_row, port + 2 + label.chars().count(), lane - 1, '.');
                 draw_line(canvas, label_row, lane, '+');
                 let (top, bottom) = if label_row < arrow_row {
                     (label_row + 1, arrow_row - 1)
                 } else {
                     (arrow_row + 1, label_row - 1)
                 };
-                draw_vline(canvas, lane, top, bottom, '|');
+                draw_vline(canvas, lane, top, bottom, ':');
                 draw_line(canvas, arrow_row, lane, '+');
                 draw_hline(canvas, arrow_row, port + 1, lane - 1, '.');
             }
-            draw_text(canvas, label_row, port, dependency.kind.label());
+            draw_text(canvas, label_row, port, ": ");
+            draw_text(canvas, label_row, port + 2, label);
             canvas[arrow_row][port] = arrow;
         }
     }
@@ -496,7 +492,7 @@ impl Diagram {
 fn draw_line(canvas: &mut [Vec<char>], row: usize, col: usize, glyph: char) {
     let current = canvas[row][col];
     let horizontal = |character: char| matches!(character, '-' | '.');
-    let vertical = |character: char| character == '|';
+    let vertical = |character: char| matches!(character, '|' | ':');
     canvas[row][col] = if current == ' ' {
         glyph
     } else if current == '+'
@@ -559,15 +555,15 @@ Place order ..> Pay: extend
 Payment Gateway --> Pay
 ";
         let expected = concat!(
-            "   o       + Online Shop ---------+          o\n",
-            "  /|\\----+ |                      | +-------/|\\\n",
-            "  / \\    +-+-( Browse catalog )   | |       / \\\n",
-            "Customer | |   |                  | | Payment Gateway\n",
-            "         | |   include..........+ | |\n",
-            "         | |                    | | |\n",
-            "         +-+-( Place order )    | | |\n",
-            "           |   |                | | |\n",
-            "           |   extend           | | |\n",
+            "           + Online Shop ---------+\n",
+            "   o       |                      |          o\n",
+            "  /|\\----+-+-( Browse catalog )   | +-------/|\\\n",
+            "  / \\    | |   :                  | |       / \\\n",
+            "Customer | |   : include........+ | | Payment Gateway\n",
+            "         | |                    : | |\n",
+            "         +-+-( Place order )    : | |\n",
+            "           |   :                : | |\n",
+            "           |   : extend         : | |\n",
             "           |   v................+ | |\n",
             "           | ( Pay )--------------+-+\n",
             "           |                      |\n",
@@ -582,10 +578,10 @@ Payment Gateway --> Pay
             "system S {\n  A\n}\nactor Default\nactor(left) Left Actor\nactor(right) Right Actor\nactor Unused\nDefault --> A\nLeft Actor --> A\nRight Actor --> A\n",
         );
         let lines: Vec<_> = output.lines().collect();
-        assert!(lines[3].starts_with("Default") && lines[3].ends_with("Right Actor"));
-        assert!(lines[8].starts_with("Left Actor"));
-        assert!(lines[13].starts_with("Unused"));
-        assert!(lines[1].contains('+') && lines[6].contains('+'));
+        assert!(lines[4].starts_with("Default") && lines[4].ends_with("Right Actor"));
+        assert!(lines[9].starts_with("Left Actor"));
+        assert!(lines[14].starts_with("Unused"));
+        assert!(lines[2].contains('+') && lines[7].contains('+'));
     }
 
     #[test]
@@ -602,12 +598,12 @@ Payment Gateway --> Pay
     #[test]
     fn routes_dependencies() {
         let down = render("system S {\nA\nB\n}\nA ..> B: include\n");
-        assert!(down.lines().nth(3).unwrap().contains('|'));
-        assert!(down.lines().nth(4).unwrap().contains("include"));
+        assert!(down.lines().nth(3).unwrap().contains(':'));
+        assert!(down.lines().nth(4).unwrap().contains(": include"));
         assert!(down.lines().nth(5).unwrap().contains('v'));
         let up = render("system S {\nA\nB\n}\nB ..> A: extend\n");
-        assert!(up.lines().nth(5).unwrap().contains('|'));
-        assert!(up.lines().nth(4).unwrap().contains("extend"));
+        assert!(up.lines().nth(5).unwrap().contains(':'));
+        assert!(up.lines().nth(4).unwrap().contains(": extend"));
         assert!(up.lines().nth(3).unwrap().contains('^'));
         let lane = render("system S {\nA\nB\nC\n}\nA ..> C: include\n");
         assert!(lane.lines().any(|line| line.contains("include") && line.contains('+')));
