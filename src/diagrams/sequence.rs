@@ -4,10 +4,10 @@ use std::fmt;
 enum ParseError {
     EmptyInput,
     MissingColon { ln: usize },
-    MissingOperator { ln: usize },
-    MultipleOperators { ln: usize },
-    EmptyOperatorSide { ln: usize },
-    EmptyDescription { ln: usize },
+    MissingArrow { ln: usize },
+    MultipleArrows { ln: usize },
+    EmptySide { ln: usize },
+    EmptyMessage { ln: usize },
     SelfMessage { ln: usize },
     ControlCharacter { ln: usize },
 }
@@ -16,11 +16,11 @@ impl fmt::Display for ParseError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (ln, message) = match *self {
             Self::EmptyInput => (None, "no messages found in input"),
-            Self::MissingColon { ln } => (Some(ln), "expected ':' before the description"),
-            Self::MissingOperator { ln } => (Some(ln), "expected one of: --> <-- ..> <.. --- ..."),
-            Self::MultipleOperators { ln } => (Some(ln), "expected exactly one operator"),
-            Self::EmptyOperatorSide { ln } => (Some(ln), "operator cannot have empty sides"),
-            Self::EmptyDescription { ln } => (Some(ln), "description must not be empty"),
+            Self::MissingColon { ln } => (Some(ln), "expected ':' before the message"),
+            Self::MissingArrow { ln } => (Some(ln), "expected one of: --> <-- ..> <.. --- ..."),
+            Self::MultipleArrows { ln } => (Some(ln), "expected exactly one arrow"),
+            Self::EmptySide { ln } => (Some(ln), "arrow cannot have empty sides"),
+            Self::EmptyMessage { ln } => (Some(ln), "message must not be empty"),
             Self::SelfMessage { ln } => (Some(ln), "a sender cannot message itself"),
             Self::ControlCharacter { ln } => (Some(ln), "control characters are not allowed"),
         };
@@ -35,7 +35,7 @@ impl fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OperatorKind {
+enum Arrow {
     SolidArrowRight,
     SolidArrowLeft,
     DottedArrowRight,
@@ -44,7 +44,7 @@ enum OperatorKind {
     Dotted,
 }
 
-impl OperatorKind {
+impl Arrow {
     const fn is_dotted(self) -> bool {
         matches!(self, Self::DottedArrowRight | Self::DottedArrowLeft | Self::Dotted)
     }
@@ -57,9 +57,9 @@ impl OperatorKind {
         matches!(self, Self::DottedArrowLeft | Self::SolidArrowLeft)
     }
 
-    // Yields `(left, operator, right)` for every operator occurrence in `header`.
+    // Yields `(left, arrow, right)` for every arrow occurrence in `link`.
     // The scan goes position by position so overlapping occurrences are found.
-    fn splits(header: &str) -> impl Iterator<Item = (&str, Self, &str)> {
+    fn splits(link: &str) -> impl Iterator<Item = (&str, Self, &str)> {
         let ops = [
             ("-->", Self::SolidArrowRight),
             ("<--", Self::SolidArrowLeft),
@@ -68,52 +68,51 @@ impl OperatorKind {
             ("..>", Self::DottedArrowRight),
             ("<..", Self::DottedArrowLeft),
         ];
-        header.char_indices().filter_map(move |(idx, _)| {
+        link.char_indices().filter_map(move |(idx, _)| {
             ops.iter()
-                .find_map(|&(pat, op)| header[idx..].strip_prefix(pat).map(|rest| (op, rest)))
-                .map(|(op, rest)| (header[..idx].trim(), op, rest.trim()))
+                .find_map(|&(pat, op)| link[idx..].strip_prefix(pat).map(|rest| (op, rest)))
+                .map(|(op, rest)| (link[..idx].trim(), op, rest.trim()))
         })
     }
 }
 
 #[derive(Debug)]
-struct Message {
+struct Event {
     from: usize,
+    arrow: Arrow,
     to: usize,
-    operator: OperatorKind,
-    text: String,
+    message: String,
 }
 
 #[derive(Debug)]
 struct Sequence {
     participants: Vec<String>,
-    messages: Vec<Message>,
+    events: Vec<Event>,
 }
 
 impl Sequence {
     fn parse(input: &str) -> Result<Self, ParseError> {
         let mut participants = Vec::new();
-        let mut messages = Vec::new();
+        let mut events = Vec::new();
         for (ln, line) in input.lines().enumerate().filter_map(|(index, line)| {
             let line = line.trim();
             (!line.is_empty() && !line.starts_with('#')).then_some((index + 1, line))
         }) {
-            let (header, text) = line.split_once(':').ok_or(ParseError::MissingColon { ln })?;
-            let text = text.trim();
-            let mut splits = OperatorKind::splits(header);
-            let Some((left, operator, right)) = splits.next() else {
-                return Err(ParseError::MissingOperator { ln });
+            let (link, message) = line.split_once(':').ok_or(ParseError::MissingColon { ln })?;
+            let message = message.trim();
+            let mut splits = Arrow::splits(link);
+            let Some((left, arrow, right)) = splits.next() else {
+                return Err(ParseError::MissingArrow { ln });
             };
             if splits.next().is_some() {
-                return Err(ParseError::MultipleOperators { ln });
-            }
-            if left.is_empty() || right.is_empty() {
-                return Err(ParseError::EmptyOperatorSide { ln });
+                return Err(ParseError::MultipleArrows { ln });
+            } else if left.is_empty() || right.is_empty() {
+                return Err(ParseError::EmptySide { ln });
             } else if left == right {
                 return Err(ParseError::SelfMessage { ln });
-            } else if text.is_empty() {
-                return Err(ParseError::EmptyDescription { ln });
-            } else if [left, right, text].iter().any(|value| value.chars().any(char::is_control)) {
+            } else if message.is_empty() {
+                return Err(ParseError::EmptyMessage { ln });
+            } else if [left, right, message].iter().any(|str| str.chars().any(char::is_control)) {
                 return Err(ParseError::ControlCharacter { ln });
             }
 
@@ -123,12 +122,12 @@ impl Sequence {
                     participants.len() - 1
                 })
             });
-            let (from, to) = if operator.right_to_left() { (right, left) } else { (left, right) };
-            messages.push(Message { from, to, operator, text: text.to_owned() });
+            let (from, to) = if arrow.right_to_left() { (right, left) } else { (left, right) };
+            events.push(Event { from, to, arrow, message: message.to_owned() });
         }
 
-        messages.first().ok_or(ParseError::EmptyInput)?;
-        Ok(Self { participants, messages })
+        events.first().ok_or(ParseError::EmptyInput)?;
+        Ok(Self { participants, events })
     }
 
     fn render(&self) -> String {
@@ -137,13 +136,13 @@ impl Sequence {
             self.participants.iter().map(|name| (name.chars().count() + 4) | 1).collect();
         let mut spacings: Vec<usize> =
             box_widths.windows(2).map(|width| width[0] / 2 + width[1] / 2 + 2).collect();
-        for message in &self.messages {
+        for message in &self.events {
             let (from, to) = (message.from, message.to);
             let left = from.min(to);
             let right = from.max(to);
 
             let current: usize = spacings[left..right].iter().sum();
-            let required = message.text.chars().count() + 3;
+            let required = message.message.chars().count() + 3;
             if current < required {
                 spacings[left] += required - current;
             }
@@ -169,17 +168,17 @@ impl Sequence {
         let empty_row = || lifeline_row(&box_centers, header_width);
         lines.push(String::from_iter(empty_row()));
 
-        for message in &self.messages {
+        for message in &self.events {
             let (from, to) = (message.from, message.to);
-            let text_start = box_centers[from.min(to)] + 2;
+            let message_start = box_centers[from.min(to)] + 2;
             let mut message_row = empty_row();
-            for (offset, character) in message.text.chars().enumerate() {
-                message_row[text_start + offset] = character;
+            for (offset, character) in message.message.chars().enumerate() {
+                message_row[message_start + offset] = character;
             }
 
             let empty_row = empty_row();
             let arrow_row =
-                draw_connection(&empty_row, box_centers[from], box_centers[to], message.operator);
+                draw_connection(&empty_row, box_centers[from], box_centers[to], message.arrow);
 
             lines.push(String::from_iter(message_row));
             lines.push(String::from_iter(arrow_row));
@@ -234,7 +233,7 @@ fn lifeline_row(column_positions: &[usize], width: usize) -> Vec<char> {
 // +---+ +---+
 //   |     |
 //   |---->|
-fn draw_connection(row: &[char], from_x: usize, to_x: usize, kind: OperatorKind) -> Vec<char> {
+fn draw_connection(row: &[char], from_x: usize, to_x: usize, kind: Arrow) -> Vec<char> {
     let mut res = row.to_vec();
     let (left, right) = (from_x.min(to_x), from_x.max(to_x));
     res[left + 1..right].fill(if kind.is_dotted() { '.' } else { '-' });
@@ -253,7 +252,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_each_operator_kind() {
+    fn parses_each_arrow_kind() {
         let input = r"a --> b: solid right
                       b <-- a: solid left
                       a ..> b: dotted right
@@ -262,28 +261,28 @@ mod tests {
                       b ... c: dotted";
         let diagram = Sequence::parse(input).unwrap();
         let messages: Vec<_> = diagram
-            .messages
+            .events
             .iter()
-            .map(|message| (message.from, message.to, message.operator, message.text.as_str()))
+            .map(|message| (message.from, message.to, message.arrow, message.message.as_str()))
             .collect();
+        assert_eq!(diagram.participants, ["a", "b", "c"]);
         assert_eq!(
             messages,
             [
-                (0, 1, OperatorKind::SolidArrowRight, "solid right"),
-                (0, 1, OperatorKind::SolidArrowLeft, "solid left"),
-                (0, 1, OperatorKind::DottedArrowRight, "dotted right"),
-                (2, 1, OperatorKind::DottedArrowLeft, "dotted left"),
-                (0, 1, OperatorKind::Solid, "solid"),
-                (1, 2, OperatorKind::Dotted, "dotted"),
+                (0, 1, Arrow::SolidArrowRight, "solid right"),
+                (0, 1, Arrow::SolidArrowLeft, "solid left"),
+                (0, 1, Arrow::DottedArrowRight, "dotted right"),
+                (2, 1, Arrow::DottedArrowLeft, "dotted left"),
+                (0, 1, Arrow::Solid, "solid"),
+                (1, 2, Arrow::Dotted, "dotted"),
             ]
         );
-        assert_eq!(diagram.participants, ["a", "b", "c"]);
     }
 
     #[test]
     fn ignores_empty_line_and_comments() {
         let diagram = Sequence::parse("# comment\n\nA-->B:hi\n").unwrap();
-        assert_eq!(diagram.messages.len(), 1);
+        assert_eq!(diagram.events.len(), 1);
     }
 
     #[test]
@@ -324,27 +323,27 @@ mod tests {
     fn allows_printable_unicode() {
         let diagram = Sequence::parse("café --> 世界: 🙂\n").unwrap();
         assert_eq!(diagram.participants, ["café", "世界"]);
-        let message = &diagram.messages[0];
+        let message = &diagram.events[0];
         assert_eq!((message.from, message.to), (0, 1));
-        assert_eq!(message.operator, OperatorKind::SolidArrowRight);
-        assert_eq!(message.text, "🙂");
+        assert_eq!(message.arrow, Arrow::SolidArrowRight);
+        assert_eq!(message.message, "🙂");
     }
 
     #[test]
     fn reports_all_parse_errors() {
         let cases = [
-            ("a --> b\n", "line 1: expected ':' before the description"),
-            ("a --> b: \n", "line 1: description must not be empty"),
+            ("a --> b\n", "line 1: expected ':' before the message"),
+            ("a --> b: \n", "line 1: message must not be empty"),
             ("a b: hi\n", "line 1: expected one of: --> <-- ..> <.. --- ..."),
-            (" --> b: hi\n", "line 1: operator cannot have empty sides"),
-            ("a --> : hi\n", "line 1: operator cannot have empty sides"),
+            (" --> b: hi\n", "line 1: arrow cannot have empty sides"),
+            ("a --> : hi\n", "line 1: arrow cannot have empty sides"),
             ("a --> a: hi\n", "line 1: a sender cannot message itself"),
             ("\n \n", "no messages found in input"),
-            ("a --><-- b: hi\n", "line 1: expected exactly one operator"),
-            ("a <--> b: hi\n", "line 1: expected exactly one operator"),
-            ("a --> b --> c: hi\n", "line 1: expected exactly one operator"),
-            ("a ..> b ..> c: hi\n", "line 1: expected exactly one operator"),
-            ("a ---> b: hi\n", "line 1: expected exactly one operator"),
+            ("a --><-- b: hi\n", "line 1: expected exactly one arrow"),
+            ("a <--> b: hi\n", "line 1: expected exactly one arrow"),
+            ("a --> b --> c: hi\n", "line 1: expected exactly one arrow"),
+            ("a ..> b ..> c: hi\n", "line 1: expected exactly one arrow"),
+            ("a ---> b: hi\n", "line 1: expected exactly one arrow"),
             ("a --> b: \u{1b}[31mred\n", "line 1: control characters are not allowed"),
             ("a\u{1b} --> b: hi\n", "line 1: control characters are not allowed"),
             ("a --> b\u{7f}: hi\n", "line 1: control characters are not allowed"),
