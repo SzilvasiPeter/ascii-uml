@@ -58,6 +58,7 @@ impl OperatorKind {
     }
 
     // Yields `(left, operator, right)` for every operator occurrence in `header`.
+    // The scan goes position by position so overlapping occurrences are found.
     fn splits(header: &str) -> impl Iterator<Item = (&str, Self, &str)> {
         let ops = [
             ("-->", Self::SolidArrowRight),
@@ -67,11 +68,11 @@ impl OperatorKind {
             ("..>", Self::DottedArrowRight),
             ("<..", Self::DottedArrowLeft),
         ];
-        ops.into_iter()
-            .filter_map(|(pat, op)| header.find(pat).map(|i| (i, pat, op)))
-            .min_by_key(|&(i, _, _)| i)
-            .map(|(i, pat, op)| (header[..i].trim(), op, header[i + pat.len()..].trim()))
-            .into_iter()
+        header.char_indices().filter_map(move |(idx, _)| {
+            ops.iter()
+                .find_map(|&(pat, op)| header[idx..].strip_prefix(pat).map(|rest| (op, rest)))
+                .map(|(op, rest)| (header[..idx].trim(), op, rest.trim()))
+        })
     }
 }
 
