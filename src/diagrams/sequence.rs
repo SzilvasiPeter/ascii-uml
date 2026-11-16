@@ -85,7 +85,7 @@ struct Event {
 
 #[derive(Debug)]
 struct Sequence {
-    participants: Vec<String>,
+    actors: Vec<String>,
     events: Vec<Event>,
 }
 
@@ -126,65 +126,45 @@ impl Sequence {
         }
 
         events.first().ok_or(ParseError::EmptyInput)?;
-        Ok(Self { participants, events })
+        Ok(Self { actors: participants, events })
     }
 
     fn render(&self) -> String {
         // `| <name> |` needs 4 border char; `| 1` ensures odd width for a midpoint.
-        let box_widths: Vec<usize> =
-            self.participants.iter().map(|name| (name.chars().count() + 4) | 1).collect();
-        let mut spacings: Vec<usize> =
-            box_widths.windows(2).map(|width| width[0] / 2 + width[1] / 2 + 2).collect();
-        for message in &self.events {
-            let (from, to) = (message.from, message.to);
-            let left = from.min(to);
-            let right = from.max(to);
-
-            let current: usize = spacings[left..right].iter().sum();
-            let required = message.message.chars().count() + 3;
-            if current < required {
-                spacings[left] += required - current;
-            }
+        let widths: Vec<_> = self.actors.iter().map(|p| (p.chars().count() + 4) | 1).collect();
+        let mut gaps: Vec<_> = widths.windows(2).map(|w| w[0] / 2 + w[1] / 2 + 2).collect();
+        for event in &self.events {
+            let (left, right) = (event.from.min(event.to), event.from.max(event.to));
+            let required = event.message.chars().count() + 3;
+            gaps[left] += required.saturating_sub(gaps[left..right].iter().sum());
         }
 
-        let first_column = box_widths[0] / 2;
-        let mut box_centers = vec![first_column];
-        for spacing in &spacings {
-            box_centers.push(box_centers[box_centers.len() - 1] + spacing);
+        let row_width = widths[0] / 2 + gaps.iter().sum::<usize>() + widths.last().unwrap() / 2 + 2;
+        let mut centers = vec![widths[0] / 2];
+        for gap in gaps {
+            centers.push(*centers.last().unwrap() + gap);
         }
 
-        let last_center = box_centers[box_centers.len() - 1];
-        let last_box = box_widths[box_widths.len() - 1];
-        let header_width = (last_center + 1) + (last_box / 2 + 1);
-
-        let mut header_rows: [Vec<char>; 3] = core::array::from_fn(|_| vec![' '; header_width]);
-        for (index, name) in self.participants.iter().enumerate() {
-            let left = box_centers[index] - box_widths[index] / 2;
-            draw_box(&mut header_rows, left, box_widths[index], name);
+        let mut header_rows: [Vec<char>; 3] = core::array::from_fn(|_| vec![' '; row_width]);
+        for (i, name) in self.actors.iter().enumerate() {
+            draw_box(&mut header_rows, centers[i] - widths[i] / 2, widths[i], name);
         }
 
-        let mut lines: Vec<String> = header_rows.map(String::from_iter).into_iter().collect();
-        let empty_row = || lifeline_row(&box_centers, header_width);
-        lines.push(String::from_iter(empty_row()));
-
-        for message in &self.events {
-            let (from, to) = (message.from, message.to);
-            let message_start = box_centers[from.min(to)] + 2;
+        let empty_row = || lifeline_row(&centers, row_width);
+        let mut rows: Vec<Vec<char>> = header_rows.into();
+        rows.push(empty_row());
+        for event in &self.events {
+            let (from, to) = (event.from, event.to);
+            let message_start = centers[from.min(to)] + 2;
             let mut message_row = empty_row();
-            for (offset, character) in message.message.chars().enumerate() {
-                message_row[message_start + offset] = character;
+            for (slot, ch) in message_row[message_start..].iter_mut().zip(event.message.chars()) {
+                *slot = ch;
             }
-
-            let empty_row = empty_row();
-            let arrow_row =
-                draw_connection(&empty_row, box_centers[from], box_centers[to], message.arrow);
-
-            lines.push(String::from_iter(message_row));
-            lines.push(String::from_iter(arrow_row));
-            lines.push(String::from_iter(empty_row));
+            let arrow_row = draw_connection(&empty_row(), centers[from], centers[to], event.arrow);
+            rows.extend([message_row, arrow_row, empty_row()]);
         }
 
-        lines.join("\n")
+        rows.into_iter().map(String::from_iter).collect::<Vec<_>>().join("\n")
     }
 }
 
@@ -255,7 +235,7 @@ mod tests {
             .iter()
             .map(|message| (message.from, message.to, message.arrow, message.message.as_str()))
             .collect();
-        assert_eq!(diagram.participants, ["a", "b", "c"]);
+        assert_eq!(diagram.actors, ["a", "b", "c"]);
         assert_eq!(
             messages,
             [
@@ -312,7 +292,7 @@ mod tests {
     #[test]
     fn allows_printable_unicode() {
         let diagram = Sequence::parse("café --> 世界: 🙂\n").unwrap();
-        assert_eq!(diagram.participants, ["café", "世界"]);
+        assert_eq!(diagram.actors, ["café", "世界"]);
         let message = &diagram.events[0];
         assert_eq!((message.from, message.to), (0, 1));
         assert_eq!(message.arrow, Arrow::Head(Line::Solid));
