@@ -10,7 +10,7 @@ A small command-line tool that turns simple text into ASCII UML diagrams.
 
 Inspired by:
 - https://github.com/rust-lang/bors/blob/main/docs/design.md
-- https://github.com/pylover/adia
+- https://github.com/mermaid-js/mermaid-cli and https://github.com/1jehuang/mermaid-rs-renderer
 
 ## Install
 
