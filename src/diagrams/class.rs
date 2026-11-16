@@ -61,14 +61,18 @@ impl Diagram {
                     .ok_or_else(|| format!("line {line_number}: expected '{{' after layout"))?;
                 seen_layout = true;
                 let (content, closed) = split_layout(rest);
-                add_row(content, &mut rows)?;
+                if let Some(row) = parse_row(content)? {
+                    rows.push(row);
+                }
                 in_layout = !closed;
                 continue;
             }
 
             if in_layout {
                 let (content, closed) = split_layout(line);
-                add_row(content, &mut rows)?;
+                if let Some(row) = parse_row(content)? {
+                    rows.push(row);
+                }
                 if closed {
                     in_layout = false;
                 }
@@ -202,7 +206,7 @@ fn split_layout(line: &str) -> (&str, bool) {
     line.find('}').map_or((line, false), |position| (&line[..position], true))
 }
 
-fn add_row(content: &str, rows: &mut Vec<Vec<String>>) -> Result<(), String> {
+fn parse_row(content: &str) -> Result<Option<Vec<String>>, String> {
     let mut row = Vec::new();
     for part in content.split(',') {
         let name = part.trim();
@@ -212,10 +216,7 @@ fn add_row(content: &str, rows: &mut Vec<Vec<String>>) -> Result<(), String> {
         validate_name(name)?;
         row.push(name.to_owned());
     }
-    if !row.is_empty() {
-        rows.push(row);
-    }
-    Ok(())
+    Ok(if row.is_empty() { None } else { Some(row) })
 }
 
 fn validate_name(name: &str) -> Result<(), String> {
