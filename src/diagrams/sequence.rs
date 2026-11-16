@@ -35,38 +35,37 @@ impl fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Arrow {
-    SolidArrowRight,
-    SolidArrowLeft,
-    DottedArrowRight,
-    DottedArrowLeft,
+enum Line {
     Solid,
     Dotted,
 }
 
+impl Line {
+    const fn fill(self) -> char {
+        match self {
+            Self::Solid => '-',
+            Self::Dotted => '.',
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Arrow {
+    Head(Line),
+    Plain(Line),
+}
+
 impl Arrow {
-    const fn is_dotted(self) -> bool {
-        matches!(self, Self::DottedArrowRight | Self::DottedArrowLeft | Self::Dotted)
-    }
-
-    const fn has_arrow(self) -> bool {
-        !matches!(self, Self::Solid | Self::Dotted)
-    }
-
-    const fn right_to_left(self) -> bool {
-        matches!(self, Self::DottedArrowLeft | Self::SolidArrowLeft)
-    }
-
-    // Yields `(left, arrow, right)` for every arrow occurrence in `link`.
+    // Yields `(left, (arrow, points left), right)` for every arrow occurrence in `link`.
     // The scan goes position by position so overlapping occurrences are found.
-    fn splits(link: &str) -> impl Iterator<Item = (&str, Self, &str)> {
+    fn splits(link: &str) -> impl Iterator<Item = (&str, (Self, bool), &str)> {
         let ops = [
-            ("-->", Self::SolidArrowRight),
-            ("<--", Self::SolidArrowLeft),
-            ("---", Self::Solid),
-            ("...", Self::Dotted),
-            ("..>", Self::DottedArrowRight),
-            ("<..", Self::DottedArrowLeft),
+            ("-->", (Self::Head(Line::Solid), false)),
+            ("<--", (Self::Head(Line::Solid), true)),
+            ("---", (Self::Plain(Line::Solid), false)),
+            ("...", (Self::Plain(Line::Dotted), false)),
+            ("..>", (Self::Head(Line::Dotted), false)),
+            ("<..", (Self::Head(Line::Dotted), true)),
         ];
         link.char_indices().filter_map(move |(idx, _)| {
             ops.iter()
@@ -101,7 +100,7 @@ impl Sequence {
             let (link, message) = line.split_once(':').ok_or(ParseError::MissingColon { ln })?;
             let message = message.trim();
             let mut splits = Arrow::splits(link);
-            let Some((left, arrow, right)) = splits.next() else {
+            let Some((left, (arrow, points_left), right)) = splits.next() else {
                 return Err(ParseError::MissingArrow { ln });
             };
             if splits.next().is_some() {
@@ -122,7 +121,7 @@ impl Sequence {
                     participants.len() - 1
                 })
             });
-            let (from, to) = if arrow.right_to_left() { (right, left) } else { (left, right) };
+            let (from, to) = if points_left { (right, left) } else { (left, right) };
             events.push(Event { from, to, arrow, message: message.to_owned() });
         }
 
@@ -161,7 +160,7 @@ impl Sequence {
         let mut header_rows: [Vec<char>; 3] = core::array::from_fn(|_| vec![' '; header_width]);
         for (index, name) in self.participants.iter().enumerate() {
             let left = box_centers[index] - box_widths[index] / 2;
-            header_rows = draw_box(header_rows, left, box_widths[index], name);
+            draw_box(&mut header_rows, left, box_widths[index], name);
         }
 
         let mut lines: Vec<String> = header_rows.map(String::from_iter).into_iter().collect();
@@ -196,33 +195,26 @@ pub fn run(input: &str) -> Result<String, String> {
 // +---+
 // | a |
 // +---+
-fn draw_box(mut header: [Vec<char>; 3], left: usize, width: usize, name: &str) -> [Vec<char>; 3] {
+fn draw_box(header: &mut [Vec<char>; 3], left: usize, width: usize, name: &str) {
     let right = left + width - 1;
-
-    for row_index in [0, 2] {
-        let row = &mut header[row_index];
-        row[left] = '+';
-        row[right] = '+';
-        row[left + 1..right].fill('-');
+    for i in [0, 2] {
+        header[i][left..=right].fill('-');
+        header[i][left] = '+';
+        header[i][right] = '+';
     }
 
-    let row = &mut header[1];
-    row[left] = '|';
-    row[right] = '|';
-    for (offset, character) in name.chars().enumerate() {
-        row[left + 2 + offset] = character;
-    }
-
-    header
+    header[1][left] = '|';
+    header[1][right] = '|';
+    name.chars().enumerate().for_each(|(i, c)| header[1][left + 2 + i] = c);
 }
 
 // +---+ +---+
 // | a | | b |
 // +---+ +---+
 //   |     |
-fn lifeline_row(column_positions: &[usize], width: usize) -> Vec<char> {
+fn lifeline_row(columns: &[usize], width: usize) -> Vec<char> {
     let mut row = vec![' '; width];
-    for &x in column_positions {
+    for &x in columns {
         row[x] = '|';
     }
     row
@@ -233,18 +225,16 @@ fn lifeline_row(column_positions: &[usize], width: usize) -> Vec<char> {
 // +---+ +---+
 //   |     |
 //   |---->|
-fn draw_connection(row: &[char], from_x: usize, to_x: usize, kind: Arrow) -> Vec<char> {
-    let mut res = row.to_vec();
-    let (left, right) = (from_x.min(to_x), from_x.max(to_x));
-    res[left + 1..right].fill(if kind.is_dotted() { '.' } else { '-' });
-    if kind.has_arrow() {
-        if from_x < to_x {
-            res[right - 1] = '>';
-        } else {
-            res[left + 1] = '<';
-        }
+fn draw_connection(row: &[char], from: usize, to: usize, kind: Arrow) -> Vec<char> {
+    let mut result = row.to_vec();
+    let (left, right) = (from.min(to), from.max(to));
+    let (Arrow::Head(line) | Arrow::Plain(line)) = kind;
+    result[left + 1..right].fill(line.fill());
+    if matches!(kind, Arrow::Head(_)) {
+        let (idx, ch) = if from < to { (right - 1, '>') } else { (left + 1, '<') };
+        result[idx] = ch;
     }
-    res
+    result
 }
 
 #[cfg(test)]
@@ -269,12 +259,12 @@ mod tests {
         assert_eq!(
             messages,
             [
-                (0, 1, Arrow::SolidArrowRight, "solid right"),
-                (0, 1, Arrow::SolidArrowLeft, "solid left"),
-                (0, 1, Arrow::DottedArrowRight, "dotted right"),
-                (2, 1, Arrow::DottedArrowLeft, "dotted left"),
-                (0, 1, Arrow::Solid, "solid"),
-                (1, 2, Arrow::Dotted, "dotted"),
+                (0, 1, Arrow::Head(Line::Solid), "solid right"),
+                (0, 1, Arrow::Head(Line::Solid), "solid left"),
+                (0, 1, Arrow::Head(Line::Dotted), "dotted right"),
+                (2, 1, Arrow::Head(Line::Dotted), "dotted left"),
+                (0, 1, Arrow::Plain(Line::Solid), "solid"),
+                (1, 2, Arrow::Plain(Line::Dotted), "dotted"),
             ]
         );
     }
@@ -325,7 +315,7 @@ mod tests {
         assert_eq!(diagram.participants, ["café", "世界"]);
         let message = &diagram.events[0];
         assert_eq!((message.from, message.to), (0, 1));
-        assert_eq!(message.arrow, Arrow::SolidArrowRight);
+        assert_eq!(message.arrow, Arrow::Head(Line::Solid));
         assert_eq!(message.message, "🙂");
     }
 
