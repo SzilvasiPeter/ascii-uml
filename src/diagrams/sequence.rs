@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt;
 
 #[derive(Debug)]
@@ -54,106 +53,96 @@ impl OperatorKind {
         !matches!(self, Self::Solid | Self::Dotted)
     }
 
-    const fn points_right(self) -> bool {
-        !matches!(self, Self::SolidArrowLeft | Self::DottedArrowLeft)
+    const fn right_to_left(self) -> bool {
+        matches!(self, Self::DottedArrowLeft | Self::SolidArrowLeft)
+    }
+
+    // Yields `(left, operator, right)` for every operator occurrence in `header`.
+    fn splits(header: &str) -> impl Iterator<Item = (&str, Self, &str)> {
+        let ops = [
+            ("-->", Self::SolidArrowRight),
+            ("<--", Self::SolidArrowLeft),
+            ("---", Self::Solid),
+            ("...", Self::Dotted),
+            ("..>", Self::DottedArrowRight),
+            ("<..", Self::DottedArrowLeft),
+        ];
+        ops.into_iter()
+            .filter_map(|(pat, op)| header.find(pat).map(|i| (i, pat, op)))
+            .min_by_key(|&(i, _, _)| i)
+            .map(|(i, pat, op)| (header[..i].trim(), op, header[i + pat.len()..].trim()))
+            .into_iter()
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Event {
-    left: String,
+#[derive(Debug)]
+struct Message {
+    from: usize,
+    to: usize,
     operator: OperatorKind,
-    right: String,
     text: String,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Sequence {
-    events: Vec<Event>,
+    participants: Vec<String>,
+    messages: Vec<Message>,
 }
 
 impl Sequence {
     fn parse(input: &str) -> Result<Self, ParseError> {
-        let mut diagram = Self::default();
-        for (index, raw_line) in input.lines().enumerate() {
-            let line = raw_line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
+        let mut participants = Vec::new();
+        let mut messages = Vec::new();
+        for (ln, line) in input.lines().enumerate().filter_map(|(index, line)| {
+            let line = line.trim();
+            (!line.is_empty() && !line.starts_with('#')).then_some((index + 1, line))
+        }) {
+            let (header, text) = line.split_once(':').ok_or(ParseError::MissingColon { ln })?;
+            let text = text.trim();
+            let mut splits = OperatorKind::splits(header);
+            let Some((left, operator, right)) = splits.next() else {
+                return Err(ParseError::MissingOperator { ln });
+            };
+            if splits.next().is_some() {
+                return Err(ParseError::MultipleOperators { ln });
             }
-            diagram.parse_line(index + 1, line)?;
+            if left.is_empty() || right.is_empty() {
+                return Err(ParseError::EmptyOperatorSide { ln });
+            } else if left == right {
+                return Err(ParseError::SelfMessage { ln });
+            } else if text.is_empty() {
+                return Err(ParseError::EmptyDescription { ln });
+            } else if [left, right, text].iter().any(|value| value.chars().any(char::is_control)) {
+                return Err(ParseError::ControlCharacter { ln });
+            }
+
+            let [left, right] = [left, right].map(|name| {
+                participants.iter().position(|p| *p == name).unwrap_or_else(|| {
+                    participants.push(name.to_owned());
+                    participants.len() - 1
+                })
+            });
+            let (from, to) = if operator.right_to_left() { (right, left) } else { (left, right) };
+            messages.push(Message { from, to, operator, text: text.to_owned() });
         }
 
-        if diagram.events.is_empty() {
-            return Err(ParseError::EmptyInput);
-        }
-
-        Ok(diagram)
-    }
-
-    fn parse_line(&mut self, ln: usize, line: &str) -> Result<(), ParseError> {
-        let (event, description) = line.split_once(':').ok_or(ParseError::MissingColon { ln })?;
-        let operators = collect_operators(event);
-        if operators.is_empty() {
-            return Err(ParseError::MissingOperator { ln });
-        }
-        if operators.len() != 1 {
-            return Err(ParseError::MultipleOperators { ln });
-        }
-        let (arrow_index, operator_len, operator) = operators[0];
-
-        let left = event[..arrow_index].trim();
-        let right = event[arrow_index + operator_len..].trim();
-        let description = description.trim();
-        if left.is_empty() || right.is_empty() {
-            return Err(ParseError::EmptyOperatorSide { ln });
-        }
-        if left == right {
-            return Err(ParseError::SelfMessage { ln });
-        }
-        if description.is_empty() {
-            return Err(ParseError::EmptyDescription { ln });
-        }
-        if [left, right, description].iter().any(|value| value.chars().any(char::is_control)) {
-            return Err(ParseError::ControlCharacter { ln });
-        }
-
-        let (left, right, text) = (left.to_owned(), right.to_owned(), description.to_owned());
-        self.events.push(Event { left, operator, right, text });
-        Ok(())
+        messages.first().ok_or(ParseError::EmptyInput)?;
+        Ok(Self { participants, messages })
     }
 
     fn render(&self) -> String {
-        let mut participants: Vec<&str> = Vec::new();
-        for name in self.events.iter().flat_map(|event| [event.left.as_str(), event.right.as_str()])
-        {
-            if !participants.contains(&name) {
-                participants.push(name);
-            }
-        }
-
-        debug_assert!(participants.len() >= 2);
-        debug_assert!(!self.events.is_empty(), "diagram must contain at least one event");
-
-        let positions: HashMap<&str, usize> =
-            participants.iter().copied().enumerate().map(|(index, name)| (name, index)).collect();
-        let endpoints = |event: &Event| {
-            let left = positions[event.left.as_str()];
-            let right = positions[event.right.as_str()];
-            if event.operator.points_right() { (left, right) } else { (right, left) }
-        };
-
         // `| <name> |` needs 4 border char; `| 1` ensures odd width for a midpoint.
         let box_widths: Vec<usize> =
-            participants.iter().map(|name| (name.chars().count() + 4) | 1).collect();
+            self.participants.iter().map(|name| (name.chars().count() + 4) | 1).collect();
         let mut spacings: Vec<usize> =
             box_widths.windows(2).map(|width| width[0] / 2 + width[1] / 2 + 2).collect();
-        for event in &self.events {
-            let (from, to) = endpoints(event);
+        for message in &self.messages {
+            let (from, to) = (message.from, message.to);
             let left = from.min(to);
             let right = from.max(to);
 
             let current: usize = spacings[left..right].iter().sum();
-            let required = event.text.chars().count() + 3;
+            let required = message.text.chars().count() + 3;
             if current < required {
                 spacings[left] += required - current;
             }
@@ -170,7 +159,7 @@ impl Sequence {
         let header_width = (last_center + 1) + (last_box / 2 + 1);
 
         let mut header_rows: [Vec<char>; 3] = core::array::from_fn(|_| vec![' '; header_width]);
-        for (index, name) in participants.iter().copied().enumerate() {
+        for (index, name) in self.participants.iter().enumerate() {
             let left = box_centers[index] - box_widths[index] / 2;
             header_rows = draw_box(header_rows, left, box_widths[index], name);
         }
@@ -179,17 +168,17 @@ impl Sequence {
         let empty_row = || lifeline_row(&box_centers, header_width);
         lines.push(String::from_iter(empty_row()));
 
-        for event in &self.events {
-            let (from, to) = endpoints(event);
+        for message in &self.messages {
+            let (from, to) = (message.from, message.to);
             let text_start = box_centers[from.min(to)] + 2;
             let mut message_row = empty_row();
-            for (offset, character) in event.text.chars().enumerate() {
+            for (offset, character) in message.text.chars().enumerate() {
                 message_row[text_start + offset] = character;
             }
 
             let empty_row = empty_row();
             let arrow_row =
-                draw_connection(&empty_row, box_centers[from], box_centers[to], event.operator);
+                draw_connection(&empty_row, box_centers[from], box_centers[to], message.operator);
 
             lines.push(String::from_iter(message_row));
             lines.push(String::from_iter(arrow_row));
@@ -202,24 +191,6 @@ impl Sequence {
 
 pub fn run(input: &str) -> Result<String, String> {
     Sequence::parse(input).map(|diagram| diagram.render()).map_err(|error| error.to_string())
-}
-
-fn collect_operators(header: &str) -> Vec<(usize, usize, OperatorKind)> {
-    const OPERATORS: [(&str, OperatorKind); 6] = [
-        ("..>", OperatorKind::DottedArrowRight),
-        ("<..", OperatorKind::DottedArrowLeft),
-        ("-->", OperatorKind::SolidArrowRight),
-        ("<--", OperatorKind::SolidArrowLeft),
-        ("---", OperatorKind::Solid),
-        ("...", OperatorKind::Dotted),
-    ];
-
-    OPERATORS
-        .iter()
-        .flat_map(|&(operator, kind)| {
-            header.match_indices(operator).map(move |(index, _)| (index, operator.len(), kind))
-        })
-        .collect()
 }
 
 // +---+
@@ -280,11 +251,6 @@ fn draw_connection(row: &[char], from_x: usize, to_x: usize, kind: OperatorKind)
 mod tests {
     use super::*;
 
-    fn event(left: &str, operator: OperatorKind, right: &str, text: &str) -> Event {
-        let (left, right, text) = (left.to_owned(), right.to_owned(), text.to_owned());
-        Event { left, operator, right, text }
-    }
-
     #[test]
     fn parses_each_operator_kind() {
         let input = r"a --> b: solid right
@@ -294,23 +260,29 @@ mod tests {
                       a --- b: solid
                       b ... c: dotted";
         let diagram = Sequence::parse(input).unwrap();
+        let messages: Vec<_> = diagram
+            .messages
+            .iter()
+            .map(|message| (message.from, message.to, message.operator, message.text.as_str()))
+            .collect();
         assert_eq!(
-            diagram.events,
+            messages,
             [
-                event("a", OperatorKind::SolidArrowRight, "b", "solid right"),
-                event("b", OperatorKind::SolidArrowLeft, "a", "solid left"),
-                event("a", OperatorKind::DottedArrowRight, "b", "dotted right"),
-                event("b", OperatorKind::DottedArrowLeft, "c", "dotted left"),
-                event("a", OperatorKind::Solid, "b", "solid"),
-                event("b", OperatorKind::Dotted, "c", "dotted"),
+                (0, 1, OperatorKind::SolidArrowRight, "solid right"),
+                (0, 1, OperatorKind::SolidArrowLeft, "solid left"),
+                (0, 1, OperatorKind::DottedArrowRight, "dotted right"),
+                (2, 1, OperatorKind::DottedArrowLeft, "dotted left"),
+                (0, 1, OperatorKind::Solid, "solid"),
+                (1, 2, OperatorKind::Dotted, "dotted"),
             ]
         );
+        assert_eq!(diagram.participants, ["a", "b", "c"]);
     }
 
     #[test]
     fn ignores_empty_line_and_comments() {
         let diagram = Sequence::parse("# comment\n\nA-->B:hi\n").unwrap();
-        assert_eq!(diagram.events.len(), 1);
+        assert_eq!(diagram.messages.len(), 1);
     }
 
     #[test]
@@ -350,9 +322,11 @@ mod tests {
     #[test]
     fn allows_printable_unicode() {
         let diagram = Sequence::parse("café --> 世界: 🙂\n").unwrap();
-        assert_eq!(diagram.events[0].left, "café");
-        assert_eq!(diagram.events[0].right, "世界");
-        assert_eq!(diagram.events[0].text, "🙂");
+        assert_eq!(diagram.participants, ["café", "世界"]);
+        let message = &diagram.messages[0];
+        assert_eq!((message.from, message.to), (0, 1));
+        assert_eq!(message.operator, OperatorKind::SolidArrowRight);
+        assert_eq!(message.text, "🙂");
     }
 
     #[test]
