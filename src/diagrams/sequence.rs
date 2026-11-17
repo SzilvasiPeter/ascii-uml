@@ -1,5 +1,7 @@
 use std::fmt;
 
+use super::block::{BLOCK_HEIGHT, Block};
+
 #[derive(Debug)]
 enum ParseError {
     EmptyInput,
@@ -144,15 +146,19 @@ impl Sequence {
         for gap in gaps {
             centers.push(*centers.last().unwrap() + gap);
         }
+        let lefts: Vec<_> = centers.iter().zip(&widths).map(|(c, w)| c - w / 2).collect();
 
-        let mut header_rows: [Vec<char>; 3] = core::array::from_fn(|_| vec![' '; row_width]);
+        let mut header = Vec::new();
         for (i, name) in self.actors.iter().enumerate() {
-            draw_box(&mut header_rows, centers[i] - widths[i] / 2, widths[i], name);
+            if i > 0 {
+                header.push(Block::spacer(lefts[i] - lefts[i - 1] - widths[i - 1], BLOCK_HEIGHT));
+            }
+            header.push(Block::boxed(name.as_str()));
         }
 
         let empty_row = || lifeline_row(&centers, row_width);
-        let mut rows: Vec<Vec<char>> = header_rows.into();
-        rows.push(empty_row());
+        let text_row = |row: Vec<char>| Block::text(String::from_iter(row));
+        let mut blocks = vec![Block::horizontal(header, 0), text_row(empty_row())];
         for event in &self.events {
             let (from, to) = (event.from, event.to);
             let message_start = centers[from.min(to)] + 2;
@@ -160,32 +166,22 @@ impl Sequence {
             for (slot, ch) in message_row[message_start..].iter_mut().zip(event.message.chars()) {
                 *slot = ch;
             }
-            let arrow_row = draw_connection(&empty_row(), centers[from], centers[to], event.arrow);
-            rows.extend([message_row, arrow_row, empty_row()]);
+            blocks.push(text_row(message_row));
+            blocks.push(text_row(draw_connection(
+                &empty_row(),
+                centers[from],
+                centers[to],
+                event.arrow,
+            )));
+            blocks.push(text_row(empty_row()));
         }
 
-        rows.into_iter().map(String::from_iter).collect::<Vec<_>>().join("\n")
+        Block::vertical(blocks, 0).render()
     }
 }
 
 pub fn run(input: &str) -> Result<String, String> {
     Sequence::parse(input).map(|diagram| diagram.render()).map_err(|error| error.to_string())
-}
-
-// +---+
-// | a |
-// +---+
-fn draw_box(header: &mut [Vec<char>; 3], left: usize, width: usize, name: &str) {
-    let right = left + width - 1;
-    for i in [0, 2] {
-        header[i][left..=right].fill('-');
-        header[i][left] = '+';
-        header[i][right] = '+';
-    }
-
-    header[1][left] = '|';
-    header[1][right] = '|';
-    name.chars().enumerate().for_each(|(i, c)| header[1][left + 2 + i] = c);
 }
 
 // +---+ +---+
@@ -279,6 +275,33 @@ mod tests {
             let output = Sequence::parse(input).unwrap().render();
             assert!(output.lines().nth(5).unwrap().contains(expected), "{input}");
         }
+    }
+
+    #[test]
+    fn renders_the_documented_example_exactly() {
+        let input = "student --- master: enter room\n\
+                     student --> master: ask the way\n\
+                     student <.. master: show the way\n\
+                     student ... master: student knows the way\n";
+        let expected = concat!(
+            "+---------+             +---------+ \n",
+            "| student |             | master  | \n",
+            "+---------+             +---------+ \n",
+            "     |                       |      \n",
+            "     | enter room            |      \n",
+            "     |-----------------------|      \n",
+            "     |                       |      \n",
+            "     | ask the way           |      \n",
+            "     |---------------------->|      \n",
+            "     |                       |      \n",
+            "     | show the way          |      \n",
+            "     |<......................|      \n",
+            "     |                       |      \n",
+            "     | student knows the way |      \n",
+            "     |.......................|      \n",
+            "     |                       |      ",
+        );
+        assert_eq!(Sequence::parse(input).unwrap().render(), expected);
     }
 
     #[test]
