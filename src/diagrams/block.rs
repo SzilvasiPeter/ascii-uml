@@ -146,22 +146,6 @@ mod tests {
 
     #[test]
     fn top_aligns_blocks_of_different_heights() {
-        // TODO: This is totally weird. I would expect the text "ab\ncd" will keep as a text unit so no "+---+" header inject itself between the text.
-        // Why is this implemented this way?
-        // ANSWER: The text does stay a unit: "ab" and "cd" are still consecutive rows in
-        //         order — the `+---+` is not inserted between them, it sits to their
-        //         right. `horizontal` composes row-wise: result row i = (text row i, or
-        //         spaces if the text is shorter) + gap + (box row i, or spaces). The box
-        //         is 3 rows and the text 2; top-alignment (plan, §horizontal) pairs the
-        //         box's bottom border with space-fill for the text's missing row 3. That
-        //         is why row 3 is `   +---+`. Row-wise placement is the point of
-        //         `horizontal`: rows must align across blocks (the sequence header boxes
-        //         share their border rows so lifelines hang underneath). Appending the
-        //         box *after* the text as a unit would be `vertical`, not `horizontal`.
-        // UPDATE: `Block::text` is a single row by contract, so `"ab\ncd"` can no longer
-        //         smuggle a height into the layout; the parsers reject control
-        //         characters before any block is built. The two text rows are composed
-        //         explicitly with `vertical`.
         let text = Block::vertical([Block::text("ab"), Block::text("cd")], 0);
         let block = Block::horizontal([text, Block::boxed("A")], 1);
         assert_eq!(block.render(), "ab +---+\ncd | A |\n   +---+");
@@ -170,22 +154,6 @@ mod tests {
     #[test]
     fn stacks_blocks_vertically_with_a_gap() {
         let block = Block::vertical([Block::boxed("A"), Block::boxed("BC")], 1);
-        // TODO: test run:
-        // ```
-        //  left: "+---+  \n| A |  \n+---+  \n       \n+-----+\n| BC  |\n+-----+"
-        // right: "+---+\n| A |\n+---+\n     \n+-----+\n| BC  |\n+-----+"
-        // ```
-        // Why does the render add 2 whitespace between the "A" block?
-        // ANSWER: Rule 2 (rectangular lines). `vertical` left-aligns the blocks and
-        //         `Self::new` re-pads every row to the widest row of the stack:
-        //         `boxed("BC")` is 7 wide, `boxed("A")` is 5, so each "A" row gains 2
-        //         trailing spaces and the blank gap row becomes 7 spaces. The padding is
-        //         mandatory, not cosmetic: `horizontal` later pushes block rows verbatim,
-        //         assuming every line is exactly the block width and never re-padding,
-        //         so a ragged block would silently misalign columns. In the failing run
-        //         quoted above, `left` is the actual render (correct per rule 2) and
-        //         `right` is this assertion, which still expects the unpadded variant.
-        // UPDATE: The assertion below is that padded actual.
         assert_eq!(block.render(), "+---+  \n| A |  \n+---+  \n       \n+-----+\n| BC  |\n+-----+");
     }
 
@@ -222,21 +190,6 @@ mod tests {
             [block("A"), Block::spacer(0, BLOCK_HEIGHT), block("B"), block("C")],
             0,
         );
-        // TODO: the test run:
-        // ```
-        // left: "+---+\n| A |\n+---+\n     \n     \n     \n+---+\n| B |\n+---+\n+---+\n| C |\n+---+"
-        // right: "+---+\n| A |\n+---+\n\n\n+---+\n| B |\n+---+\n+---+\n| C |\n+---+"
-        // ```
-        // Why does the render add 5 whitespace between the new lines?
-        // ANSWER: Same rule 2. The widest row of the stack is 5 (`+---+`), and
-        //         `Self::new` pads every row — including the blank gap rows and the
-        //         spacer's own rows — to that width. The gap rows belong to the composed
-        //         block, so the rectangle invariant applies to them like any other row;
-        //         leaving them truly empty would make the block ragged. Note that after
-        //         composition `spacer(0, n)` and `gap = n` are indistinguishable: both
-        //         become full-width blank rows. As above, `left` in the TODO is the
-        //         actual render and `right` is this unpadded assertion.
-        // UPDATE: The assertion below matches that padded actual.
         assert_eq!(
             blocks.render(),
             "+---+\n| A |\n+---+\n     \n     \n     \n+---+\n| B |\n+---+\n+---+\n| C |\n+---+"
@@ -245,17 +198,6 @@ mod tests {
 
     #[test]
     fn renders_whitespace_verbatim() {
-        // TODO: if it renders verbatim, then why does the "b" has 3 trailing whitespace instead of one?
-        // ANSWER: "Verbatim" is rule 3: render never *removes* whitespace. But rule 2
-        //         runs first: `text` pads every row to the longest row ("  a  ", 5
-        //         chars) so the block is rectangular. " b " is 3 chars and receives 2
-        //         padding spaces, so it ends as " b" + 3 spaces: the 1 original plus the
-        //         2 added. Nothing was removed; 2 spaces were appended. The padding
-        //         exists because every row must be equal-width for `horizontal`, which
-        //         concatenates rows verbatim without re-padding (see the other answers).
-        // UPDATE: `text` is a single row now, so nothing pads it at construction and
-        //         what goes in renders out. Multi-row content is composed with
-        //         `vertical` instead of one `\n`-joined string.
         assert_eq!(Block::text("  a  ").render(), "  a  ");
         assert_eq!(Block::text(" b ").render(), " b ");
     }
