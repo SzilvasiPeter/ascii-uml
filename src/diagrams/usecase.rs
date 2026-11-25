@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use super::block::{canvas, draw_hline, draw_text, draw_vline, put, render_canvas};
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Side {
     Left,
@@ -358,17 +360,13 @@ impl Layout {
 impl Diagram {
     fn render(&self) -> String {
         let layout = Layout::new(self);
-        let mut canvas = vec![vec![' '; layout.canvas_w]; layout.canvas_h];
+        let mut canvas = canvas(layout.canvas_w, layout.canvas_h);
         self.draw_boundary(&layout, &mut canvas);
         self.draw_use_cases(&layout, &mut canvas);
         self.draw_actors(&layout, &mut canvas);
         self.draw_associations(&layout, &mut canvas);
         self.draw_dependencies(&layout, &mut canvas);
-        canvas
-            .into_iter()
-            .map(|row| String::from_iter(row).trim_end().to_owned())
-            .collect::<Vec<_>>()
-            .join("\n")
+        render_canvas(&canvas)
     }
 
     fn draw_boundary(&self, layout: &Layout, canvas: &mut [Vec<char>]) {
@@ -447,20 +445,20 @@ impl Diagram {
             } else {
                 (up_x, source_row - 1, source_row - 2, target_row + 1, '^')
             };
-            draw_line(canvas, port_row, port, ':');
+            put(canvas, port, port_row, ':');
             let label = dependency.kind.label();
             if dependency.source.abs_diff(dependency.target) != 1 {
                 let lane = layout.boundary_left + 3 + layout.text_w + 2 * next_lane;
                 next_lane += 1;
                 draw_hline(canvas, label_row, port + 2 + label.chars().count(), lane - 1, '.');
-                draw_line(canvas, label_row, lane, '+');
+                put(canvas, lane, label_row, '+');
                 let (top, bottom) = if label_row < arrow_row {
                     (label_row + 1, arrow_row - 1)
                 } else {
                     (arrow_row + 1, label_row - 1)
                 };
                 draw_vline(canvas, lane, top, bottom, ':');
-                draw_line(canvas, arrow_row, lane, '+');
+                put(canvas, lane, arrow_row, '+');
                 draw_hline(canvas, arrow_row, port + 1, lane - 1, '.');
             }
             draw_text(canvas, label_row, port, ": ");
@@ -486,41 +484,6 @@ impl Diagram {
                 }
             })
             .collect()
-    }
-}
-
-fn draw_line(canvas: &mut [Vec<char>], row: usize, col: usize, glyph: char) {
-    let current = canvas[row][col];
-    let horizontal = |character: char| matches!(character, '-' | '.');
-    let vertical = |character: char| matches!(character, '|' | ':');
-    canvas[row][col] = if current == ' ' {
-        glyph
-    } else if current == '+'
-        || glyph == '+'
-        || (horizontal(current) && vertical(glyph))
-        || (vertical(current) && horizontal(glyph))
-    {
-        '+'
-    } else {
-        current
-    };
-}
-
-fn draw_text(canvas: &mut [Vec<char>], row: usize, col: usize, text: &str) {
-    for (offset, character) in text.chars().enumerate() {
-        canvas[row][col + offset] = character;
-    }
-}
-
-fn draw_hline(canvas: &mut [Vec<char>], row: usize, start: usize, end: usize, glyph: char) {
-    for col in start.min(end)..=start.max(end) {
-        draw_line(canvas, row, col, glyph);
-    }
-}
-
-fn draw_vline(canvas: &mut [Vec<char>], col: usize, start: usize, end: usize, glyph: char) {
-    for row in start.min(end)..=start.max(end) {
-        draw_line(canvas, row, col, glyph);
     }
 }
 

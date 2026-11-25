@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use super::block::{Block, render_canvas};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Generalization,
@@ -147,8 +149,11 @@ impl Diagram {
 
     fn render(&self) -> String {
         const GAP: usize = 5;
-        let widths: Vec<Vec<usize>> =
-            self.rows.iter().map(|row| row.iter().map(|name| box_width(name)).collect()).collect();
+        let widths: Vec<Vec<usize>> = self
+            .rows
+            .iter()
+            .map(|row| row.iter().map(|name| Block::boxed(name.as_str()).width()).collect())
+            .collect();
         let row_widths: Vec<usize> = widths
             .iter()
             .map(|row| row.iter().sum::<usize>() + GAP * row.len().saturating_sub(1))
@@ -185,7 +190,7 @@ impl Diagram {
             let mut band = vec![vec![' '; canvas_width]; 3];
             for (column_index, name) in self.rows[row_index].iter().enumerate() {
                 let position = positions[name.as_str()];
-                draw_box(&mut band, position, name);
+                Block::boxed(name.as_str()).draw_on(&mut band, position.x, 0);
                 debug_assert_eq!(position.col, column_index);
             }
             for relation in &same_row_relations[row_index] {
@@ -198,7 +203,8 @@ impl Diagram {
             }
         }
 
-        lines.iter().map(|line| line.trim_end()).collect::<Vec<_>>().join("\n")
+        let canvas: Vec<Vec<char>> = lines.iter().map(|line| line.chars().collect()).collect();
+        render_canvas(&canvas)
     }
 }
 
@@ -253,27 +259,6 @@ fn parse_relation(line_number: usize, line: &str) -> Result<Relation, String> {
     }
 
     Err(format!("line {line_number}: expected a relation operator ('--|>', '..|>', '*--', '-->')"))
-}
-
-fn box_width(name: &str) -> usize {
-    (name.chars().count() + 4) | 1
-}
-
-fn draw_box(band: &mut [Vec<char>], position: Position, name: &str) {
-    let right = position.x + position.width - 1;
-    for row in [0, 2] {
-        band[row][position.x] = '+';
-        band[row][right] = '+';
-        band[row][position.x + 1..right].fill('-');
-    }
-
-    band[1][position.x] = '|';
-    band[1][right] = '|';
-    let inner = position.width - 2;
-    let start = position.x + 1 + (inner - name.chars().count()) / 2;
-    for (x, character) in (start..).zip(name.chars()) {
-        band[1][x] = character;
-    }
 }
 
 fn draw_same_row(band: &mut [Vec<char>], relation: &Relation, positions: &HashMap<&str, Position>) {

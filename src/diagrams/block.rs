@@ -14,6 +14,72 @@
 /// The row count of the [`Block::boxed`] shape.
 pub(super) const BLOCK_HEIGHT: usize = 3;
 
+/// Shared character-canvas primitives used by diagrams with routed edges.
+pub(super) type Canvas = Vec<Vec<char>>;
+
+pub(super) fn canvas(width: usize, height: usize) -> Canvas {
+    vec![vec![' '; width]; height]
+}
+
+/// Adds a routed line glyph, merging crossings into a junction.
+pub(super) fn put(canvas: &mut [Vec<char>], x: usize, y: usize, glyph: char) {
+    let current = canvas[y][x];
+    let horizontal = |character| matches!(character, '-' | '.');
+    let vertical = |character| matches!(character, '|' | ':');
+    canvas[y][x] = if current == ' ' {
+        glyph
+    } else if current == '+'
+        || glyph == '+'
+        || (horizontal(current) && vertical(glyph))
+        || (vertical(current) && horizontal(glyph))
+    {
+        '+'
+    } else if current == glyph {
+        current
+    } else {
+        glyph
+    };
+}
+
+pub(super) fn draw_text(canvas: &mut [Vec<char>], row: usize, col: usize, text: &str) {
+    for (offset, character) in text.chars().enumerate() {
+        canvas[row][col + offset] = character;
+    }
+}
+
+pub(super) fn draw_hline(
+    canvas: &mut [Vec<char>],
+    row: usize,
+    start: usize,
+    end: usize,
+    glyph: char,
+) {
+    for col in start.min(end)..=start.max(end) {
+        put(canvas, col, row, glyph);
+    }
+}
+
+pub(super) fn draw_vline(
+    canvas: &mut [Vec<char>],
+    col: usize,
+    start: usize,
+    end: usize,
+    glyph: char,
+) {
+    for row in start.min(end)..=start.max(end) {
+        put(canvas, col, row, glyph);
+    }
+}
+
+/// Joins a routed character canvas, dropping only trailing layout spaces.
+pub(super) fn render_canvas(canvas: &[Vec<char>]) -> String {
+    canvas
+        .iter()
+        .map(|row| row.iter().copied().collect::<String>().trim_end().to_owned())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// A rectangle of text lines, each padded to the block width.
 #[derive(Debug)]
 pub struct Block {
@@ -54,6 +120,15 @@ impl Block {
         let border = format!("+{}+", "-".repeat(width - 2));
         let padding = " ".repeat(width - 3 - label.chars().count());
         Self::new(vec![border.clone(), format!("| {label}{padding}|"), border])
+    }
+
+    /// Places this block at the given canvas offset, preserving its spaces.
+    pub(super) fn draw_on(&self, canvas: &mut [Vec<char>], x: usize, y: usize) {
+        for (row, line) in self.lines.iter().enumerate() {
+            for (column, character) in line.chars().enumerate() {
+                canvas[y + row][x + column] = character;
+            }
+        }
     }
 
     /// Places blocks left to right with `gap` spaces between neighbors.
@@ -108,7 +183,7 @@ impl Block {
         self.lines.join("\n")
     }
 
-    fn width(&self) -> usize {
+    pub(super) fn width(&self) -> usize {
         self.lines.first().map_or(0, |line| line.chars().count())
     }
 }

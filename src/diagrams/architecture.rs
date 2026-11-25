@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use super::block::{Block, put, render_canvas};
+
 pub fn run(input: &str) -> Result<String, String> {
     Diagram::parse(input).map(|diagram| diagram.render())
 }
@@ -126,7 +128,7 @@ impl Diagram {
         let mut widths = vec![0; column_count];
         for group in &self.groups {
             for (index, (name, _)) in group.services.iter().enumerate() {
-                widths[index] = widths[index].max(service_width(name));
+                widths[index] = widths[index].max(Block::boxed(name.as_str()).width());
             }
         }
         let mut columns = vec![2];
@@ -158,10 +160,7 @@ impl Diagram {
         draw_cross_group(&mut grid, &self.links, &centers, &tops, group_count);
         draw_titles(&mut grid, &self.groups, &tops);
 
-        grid.into_iter()
-            .map(|row| row.into_iter().collect::<String>().trim_end().to_owned())
-            .collect::<Vec<_>>()
-            .join("\n")
+        render_canvas(&grid)
     }
 }
 
@@ -240,22 +239,9 @@ fn validate_adjacency(
     Ok(())
 }
 
-fn service_width(name: &str) -> usize {
-    (name.chars().count() + 4) | 1
-}
-
 fn geometry(name: &str, service: usize, columns: &[usize], widths: &[usize]) -> (usize, usize) {
-    let width = service_width(name);
+    let width = Block::boxed(name).width();
     (columns[service] + (widths[service] - width) / 2, width)
-}
-
-fn put(grid: &mut [Vec<char>], x: usize, y: usize, character: char) {
-    grid[y][x] = match (grid[y][x], character) {
-        (' ', character) => character,
-        ('+', _) | (_, '+') | ('-', '|') | ('|', '-') => '+',
-        (existing, character) if existing == character => existing,
-        (_, character) => character,
-    };
 }
 
 fn draw_borders(grid: &mut [Vec<char>], tops: &[usize]) {
@@ -282,20 +268,8 @@ fn draw_boxes(
 ) {
     for (group_index, group) in groups.iter().enumerate() {
         for (service_index, (name, _)) in group.services.iter().enumerate() {
-            let (x, width) = geometry(name, service_index, columns, widths);
-            let y = tops[group_index] + 2;
-            for row in [y, y + 2] {
-                grid[row][x] = '+';
-                grid[row][x + width - 1] = '+';
-                grid[row][x + 1..x + width - 1].fill('-');
-            }
-            grid[y + 1][x] = '|';
-            grid[y + 1][x + width - 1] = '|';
-            grid[y + 1][x + 1] = ' ';
-            for (offset, character) in name.chars().enumerate() {
-                grid[y + 1][x + 2 + offset] = character;
-            }
-            grid[y + 1][x + 2 + name.chars().count()] = ' ';
+            let (x, _) = geometry(name, service_index, columns, widths);
+            Block::boxed(name.as_str()).draw_on(grid, x, tops[group_index] + 2);
         }
     }
 }
