@@ -11,16 +11,16 @@ Struct ..|> Trait
 Owner *-- Part
 User --> Service
 
-layout {
+layout Domain {
     Parent
     Child, Trait
     Part, Owner, User, Service
 }
 ```
 
-The required `layout` block defines every class exactly once.
-Rows run top to bottom.
-Comma-separated names run left to right.
+The required `layout` block defines every class exactly once. Its name is optional;
+when present, it draws a named frame around the diagram.
+Rows run top to bottom. Commas separate columns; semicolons or newlines start rows.
 Blank lines and whole-line `#` comments are ignored.
 Relations are generalization (`--|>`), realization (`..|>`),
 composition (`*--`), and association (`-->`).

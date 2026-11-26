@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use super::block::{Block, put, render_canvas};
+use super::block::{Block, draw_frame, draw_text, put, render_canvas};
+use super::parse_document;
 
 pub fn run(input: &str) -> Result<String, String> {
     Diagram::parse(input).map(|diagram| diagram.render())
@@ -9,6 +10,7 @@ pub fn run(input: &str) -> Result<String, String> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Pos {
     group: usize,
+    row: usize,
     service: usize,
 }
 
@@ -17,89 +19,50 @@ struct Link {
     to: Pos,
 }
 
-struct Group {
-    name: String,
-    line: usize,
-    services: Vec<(String, usize)>,
-}
+type Group = super::Block;
 
 struct Diagram {
     groups: Vec<Group>,
     links: Vec<Link>,
 }
 
+struct RenderLayout<'a> {
+    groups: &'a [Group],
+    links: &'a [Link],
+    columns: &'a [usize],
+    widths: &'a [usize],
+    centers: &'a [usize],
+    tops: &'a [usize],
+    heights: &'a [usize],
+}
+
+impl RenderLayout<'_> {
+    fn geometry(&self, name: &str, service: usize) -> (usize, usize) {
+        let width = Block::boxed(name).width();
+        (self.columns[service] + (self.widths[service] - width) / 2, width)
+    }
+}
+
 impl Diagram {
     fn parse(input: &str) -> Result<Self, String> {
+        let document = parse_document(input, "group")?;
         let mut groups = Vec::new();
-        let mut raw_connections = Vec::new();
-        let mut current: Option<Group> = None;
-
-        for (index, raw_line) in input.lines().enumerate() {
-            let line = index + 1;
-            let text = raw_line.trim();
-            if text.is_empty() || text.starts_with('#') {
-                continue;
+        for block in document.blocks {
+            if !block.name.is_empty() {
+                validate_name(&block.name, "group", block.line)?;
             }
-            if let Some(group) = current.as_mut() {
-                if text == "}" {
-                    let group = current.take().unwrap();
-                    if group.services.is_empty() {
-                        return Err(format!(
-                            "line {line}: empty group '{}'",
-                            group.name.escape_debug()
-                        ));
-                    }
-                    groups.push(group);
-                } else if is_group_start(text) {
-                    return Err(format!("line {line}: nested group"));
-                } else if text.contains("-->") {
-                    return Err(format!("line {line}: connections must be outside groups"));
-                } else {
-                    for part in text.split(';') {
-                        let name = part.trim();
-                        validate_name(name, "service", line)?;
-                        group.services.push((name.to_owned(), line));
-                    }
-                }
-            } else if text == "}" {
-                return Err(format!("line {line}: unexpected '}}'"));
-            } else if is_group_start(text) {
-                let rest = text.strip_prefix("group").unwrap().trim();
-                if let Some(services) =
-                    rest.strip_prefix('{').and_then(|body| body.strip_suffix('}'))
-                {
-                    let mut group = Group { name: "group".to_owned(), line, services: Vec::new() };
-                    for part in services.split(';') {
-                        let name = part.trim();
-                        if name.is_empty() {
-                            continue;
-                        }
-                        validate_name(name, "service", line)?;
-                        group.services.push((name.to_owned(), line));
-                    }
-                    if group.services.is_empty() {
-                        return Err(format!("line {line}: empty group 'group'"));
-                    }
-                    groups.push(group);
-                    continue;
-                }
-                let Some(name) = rest.strip_suffix('{') else {
-                    return Err(format!("line {line}: expected '{{' after group name"));
-                };
-                let name = name.trim();
-                validate_name(name, "group", line)?;
-                current = Some(Group { name: name.to_owned(), line, services: Vec::new() });
-            } else {
-                raw_connections.push((line, text.to_owned()));
+            if block.rows.is_empty() {
+                return Err(format!("line {}: empty group", block.line));
             }
-        }
-
-        if let Some(group) = current {
-            return Err(format!(
-                "line {}: unclosed group '{}'",
-                group.line,
-                group.name.escape_debug()
-            ));
+            for row in &block.rows {
+                for (service, line) in row {
+                    if service.contains("-->") {
+                        return Err(format!("line {line}: connections must be outside groups"));
+                    }
+                    validate_name(service, "service", *line)?;
+                }
+            }
+            groups.push(block);
         }
         if groups.is_empty() {
             return Err("no groups".to_owned());
@@ -108,16 +71,20 @@ impl Diagram {
         let mut seen = HashMap::new();
         let mut positions = HashMap::new();
         for (group_index, group) in groups.iter().enumerate() {
-            insert_name(&mut seen, &group.name, group.line)?;
-            for (service_index, (name, line)) in group.services.iter().enumerate() {
-                insert_name(&mut seen, name, *line)?;
-                positions.insert(name.clone(), (group_index, service_index));
+            if !group.name.is_empty() {
+                insert_name(&mut seen, &group.name, group.line)?;
+            }
+            for (row_index, row) in group.rows.iter().enumerate() {
+                for (service_index, (name, line)) in row.iter().enumerate() {
+                    insert_name(&mut seen, name, *line)?;
+                    positions.insert(name.clone(), (group_index, row_index, service_index));
+                }
             }
         }
 
         let mut links = Vec::new();
         let mut pairs = HashSet::new();
-        for (line, text) in raw_connections {
+        for (line, text) in document.statements {
             let (from, to) = parse_connection(&text, line)?;
             let from_pos = resolve(&positions, &from, line)?;
             let to_pos = resolve(&positions, &to, line)?;
@@ -142,11 +109,14 @@ impl Diagram {
 
     fn render(&self) -> String {
         let group_count = self.groups.len();
-        let column_count = self.groups.iter().map(|group| group.services.len()).max().unwrap_or(0);
+        let column_count =
+            self.groups.iter().flat_map(|group| &group.rows).map(Vec::len).max().unwrap_or(0);
         let mut widths = vec![0; column_count];
         for group in &self.groups {
-            for (index, (name, _)) in group.services.iter().enumerate() {
-                widths[index] = widths[index].max(Block::boxed(name.as_str()).width());
+            for row in &group.rows {
+                for (index, (name, _)) in row.iter().enumerate() {
+                    widths[index] = widths[index].max(Block::boxed(name.as_str()).width());
+                }
             }
         }
         let mut columns = vec![2];
@@ -166,18 +136,26 @@ impl Diagram {
             }
         }
         let mut tops = vec![0; group_count];
+        let heights: Vec<_> = self.groups.iter().map(|group| 4 * group.rows.len() + 3).collect();
         for index in 0..group_count.saturating_sub(1) {
-            tops[index + 1] = tops[index] + 7 + 1 + gap_counts[index];
+            tops[index + 1] = tops[index] + heights[index] + 1 + gap_counts[index];
         }
-        let height = tops.last().unwrap() + 7;
+        let height = tops.last().unwrap() + heights[group_count - 1];
         let mut grid = vec![vec![' '; width]; height];
-
-        draw_borders(&mut grid, &tops);
-        draw_boxes(&mut grid, &self.groups, &columns, &widths, &tops);
-        draw_same_group(&mut grid, &self.groups, &self.links, &columns, &widths, &tops);
-        draw_cross_group(&mut grid, &self.links, &centers, &tops, group_count);
-        draw_titles(&mut grid, &self.groups, &tops);
-
+        let layout = RenderLayout {
+            groups: &self.groups,
+            links: &self.links,
+            columns: &columns,
+            widths: &widths,
+            centers: &centers,
+            tops: &tops,
+            heights: &heights,
+        };
+        draw_borders(&mut grid, &layout);
+        draw_boxes(&mut grid, &layout);
+        draw_same_group(&mut grid, &layout);
+        draw_cross_group(&mut grid, &layout);
+        draw_titles(&mut grid, &layout);
         render_canvas(&grid)
     }
 }
@@ -186,18 +164,8 @@ fn validate_name(name: &str, kind: &str, line: usize) -> Result<(), String> {
     if name.is_empty() {
         return Err(format!("line {line}: empty {kind} name"));
     }
-    if name.chars().any(|character| {
-        character.is_control() || matches!(character, '{' | '}' | ',' | ';' | '#' | '|' | '<' | '>')
-    }) {
-        return Err(format!("line {line}: invalid {kind} name '{}'", name.escape_debug()));
-    }
-    Ok(())
-}
-
-fn is_group_start(line: &str) -> bool {
-    line.strip_prefix("group").is_some_and(|rest| {
-        rest.is_empty() || rest.starts_with('{') || rest.starts_with(char::is_whitespace)
-    })
+    super::validate_name(name, &format!("{kind} "), &['{', '}', ',', ';', '#', '|', '<', '>'])
+        .map_err(|error| format!("line {line}: {error}"))
 }
 
 fn insert_name(seen: &mut HashMap<String, usize>, name: &str, line: usize) -> Result<(), String> {
@@ -220,13 +188,13 @@ fn parse_connection(text: &str, line: usize) -> Result<(String, String), String>
 }
 
 fn resolve(
-    positions: &HashMap<String, (usize, usize)>,
+    positions: &HashMap<String, (usize, usize, usize)>,
     name: &str,
     line: usize,
 ) -> Result<Pos, String> {
     positions.get(name).map_or_else(
         || Err(format!("line {line}: unknown service '{}'", name.escape_debug())),
-        |&(group, service)| Ok(Pos { group, service }),
+        |&(group, row, service)| Ok(Pos { group, row, service }),
     )
 }
 
@@ -239,7 +207,7 @@ fn validate_adjacency(
     line: usize,
 ) -> Result<(), String> {
     if from.group == to.group {
-        if from.service.abs_diff(to.service) != 1 {
+        if from.row.abs_diff(to.row) + from.service.abs_diff(to.service) != 1 {
             return Err(format!(
                 "line {line}: services '{}' and '{}' must be adjacent within group '{}'",
                 from_name.escape_debug(),
@@ -257,94 +225,90 @@ fn validate_adjacency(
     Ok(())
 }
 
-fn geometry(name: &str, service: usize, columns: &[usize], widths: &[usize]) -> (usize, usize) {
-    let width = Block::boxed(name).width();
-    (columns[service] + (widths[service] - width) / 2, width)
+fn draw_borders(grid: &mut [Vec<char>], layout: &RenderLayout<'_>) {
+    let right = grid[0].len() - 1;
+    for ((group, &top), &height) in layout.groups.iter().zip(layout.tops).zip(layout.heights) {
+        draw_frame(grid, (0, top, right, top + height - 1), &group.name);
+    }
 }
 
-fn draw_borders(grid: &mut [Vec<char>], tops: &[usize]) {
-    let width = grid[0].len();
-    for &top in tops {
-        for row in &mut grid[top..top + 7] {
-            row[0] = '|';
-            row[width - 1] = '|';
-        }
-        grid[top].fill('-');
-        grid[top + 6].fill('-');
-        for (x, y) in [(0, top), (width - 1, top), (0, top + 6), (width - 1, top + 6)] {
-            grid[y][x] = '+';
+fn draw_boxes(grid: &mut [Vec<char>], layout: &RenderLayout<'_>) {
+    for (group_index, group) in layout.groups.iter().enumerate() {
+        for (row_index, row) in group.rows.iter().enumerate() {
+            for (service_index, (name, _)) in row.iter().enumerate() {
+                let (x, _) = layout.geometry(name, service_index);
+                Block::boxed(name.as_str()).draw_on(
+                    grid,
+                    x,
+                    layout.tops[group_index] + 2 + 4 * row_index,
+                );
+            }
         }
     }
 }
 
-fn draw_boxes(
-    grid: &mut [Vec<char>],
-    groups: &[Group],
-    columns: &[usize],
-    widths: &[usize],
-    tops: &[usize],
-) {
-    for (group_index, group) in groups.iter().enumerate() {
-        for (service_index, (name, _)) in group.services.iter().enumerate() {
-            let (x, _) = geometry(name, service_index, columns, widths);
-            Block::boxed(name.as_str()).draw_on(grid, x, tops[group_index] + 2);
-        }
+fn draw_titles(grid: &mut [Vec<char>], layout: &RenderLayout<'_>) {
+    for (group, &top) in layout.groups.iter().zip(layout.tops) {
+        draw_text(grid, top, 1, &format!(" {} ", group.name));
     }
 }
 
-fn draw_same_group(
-    grid: &mut [Vec<char>],
-    groups: &[Group],
-    links: &[Link],
-    columns: &[usize],
-    widths: &[usize],
-    tops: &[usize],
-) {
-    for link in links {
+fn draw_same_group(grid: &mut [Vec<char>], layout: &RenderLayout<'_>) {
+    for link in layout.links {
         if link.from.group != link.to.group {
             continue;
         }
-        let group = &groups[link.from.group];
+        let group = &layout.groups[link.from.group];
         let (source_x, source_width) =
-            geometry(&group.services[link.from.service].0, link.from.service, columns, widths);
+            layout.geometry(&group.rows[link.from.row][link.from.service].0, link.from.service);
         let (target_x, target_width) =
-            geometry(&group.services[link.to.service].0, link.to.service, columns, widths);
-        let y = tops[link.from.group] + 3;
-        if link.from.service < link.to.service {
-            let left = source_x + source_width;
-            let right = target_x - 1;
-            grid[y][left..right].fill('-');
-            grid[y][right] = '>';
+            layout.geometry(&group.rows[link.to.row][link.to.service].0, link.to.service);
+        if link.from.row == link.to.row {
+            let y = layout.tops[link.from.group] + 3 + 4 * link.from.row;
+            if link.from.service < link.to.service {
+                let left = source_x + source_width;
+                let right = target_x - 1;
+                grid[y][left..right].fill('-');
+                grid[y][right] = '>';
+            } else {
+                let left = target_x + target_width;
+                let right = source_x - 1;
+                grid[y][left] = '<';
+                grid[y][left + 1..=right].fill('-');
+            }
         } else {
-            let left = target_x + target_width;
-            let right = source_x - 1;
-            grid[y][left] = '<';
-            grid[y][left + 1..=right].fill('-');
+            let x = source_x + source_width / 2;
+            let source_y = layout.tops[link.from.group] + 4 + 4 * link.from.row;
+            let target_y = layout.tops[link.to.group] + 2 + 4 * link.to.row;
+            for y in source_y.min(target_y)..=source_y.max(target_y) {
+                put(grid, x, y, '|');
+            }
+            grid[target_y][x] = if link.to.row > link.from.row { 'v' } else { '^' };
         }
     }
 }
 
-fn draw_cross_group(
-    grid: &mut [Vec<char>],
-    links: &[Link],
-    centers: &[usize],
-    tops: &[usize],
-    group_count: usize,
-) {
-    let mut lanes = vec![0; group_count.saturating_sub(1)];
-    for link in links {
+fn draw_cross_group(grid: &mut [Vec<char>], layout: &RenderLayout<'_>) {
+    let mut lanes = vec![0; layout.groups.len().saturating_sub(1)];
+    for link in layout.links {
         if link.from.group == link.to.group {
             continue;
         }
         let (source_group, source_service) = (link.from.group, link.from.service);
         let (target_group, target_service) = (link.to.group, link.to.service);
         let down = target_group > source_group;
-        let source_x = centers[source_service];
-        let target_x = centers[target_service];
+        let source_x = layout.centers[source_service];
+        let target_x = layout.centers[target_service];
         let (source_y, target_y) = if down {
-            (tops[source_group] + 5, tops[target_group] + 1)
+            (
+                layout.tops[source_group] + 5 + 4 * link.from.row,
+                layout.tops[target_group] + 1 + 4 * link.to.row,
+            )
         } else {
-            (tops[source_group] + 1, tops[target_group] + 5)
+            (
+                layout.tops[source_group] + 1 + 4 * link.from.row,
+                layout.tops[target_group] + 5 + 4 * link.to.row,
+            )
         };
         if source_service == target_service {
             for y in source_y.min(target_y)..=source_y.max(target_y) {
@@ -352,7 +316,7 @@ fn draw_cross_group(
             }
         } else {
             let gap = source_group.min(target_group);
-            let lane = tops[gap] + 7 + lanes[gap];
+            let lane = layout.tops[gap] + layout.heights[gap] + lanes[gap];
             lanes[gap] += 1;
             for y in source_y.min(lane)..=source_y.max(lane) {
                 put(grid, source_x, y, '|');
@@ -370,16 +334,6 @@ fn draw_cross_group(
     }
 }
 
-fn draw_titles(grid: &mut [Vec<char>], groups: &[Group], tops: &[usize]) {
-    for (group, &top) in groups.iter().zip(tops) {
-        grid[top][1] = ' ';
-        for (offset, character) in group.name.chars().enumerate() {
-            grid[top][offset + 2] = character;
-        }
-        grid[top][group.name.chars().count() + 2] = ' ';
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::run;
@@ -393,6 +347,13 @@ mod tests {
     }
 
     #[test]
+    fn semicolon_starts_a_service_row() {
+        let output = run("group G { A, B; C }").unwrap();
+        assert!(output.find("| A |").unwrap() < output.find("| C |").unwrap());
+        assert!(output.lines().any(|line| line.contains("| C |")));
+    }
+
+    #[test]
     fn error_cases() {
         let cases = [
             ("", "no groups"),
@@ -400,15 +361,11 @@ mod tests {
             ("A\nB", "no groups"),
             ("A --> B", "no groups"),
             ("group G\nA\n}", "line 1: expected '{'"),
-            ("group  {\nA\n}", "line 1: empty group name"),
             ("group G {\nA", "unclosed group"),
             ("group G {\n}", "empty group"),
             ("group G {\ngroup H {\nA\n}\n}", "line 2: nested group"),
             ("group G {\nA; B\nA --> B\n}", "line 3: connections"),
             ("}", "line 1: unexpected '}'"),
-            ("group G {\nA;;B\n}", "line 2: empty service"),
-            ("group G {\nA;\n}", "line 2: empty service"),
-            ("group G {\n;A\n}", "line 2: empty service"),
             ("group G {\nA; A\n}", "duplicate name 'A'"),
             ("group A {\nB\n}\ngroup G {\nA\n}", "duplicate name 'A'"),
             ("group G {\nA\n}\ngroup G {\nB\n}", "duplicate name 'G'"),
@@ -423,7 +380,7 @@ mod tests {
             ("group G {\nA; B\n}\nA --> B\nA --> B", "line 5: duplicate connection"),
             ("group G {\nA; B\n}\nA --> B\nB --> A", "line 5: duplicate connection"),
             (
-                "group G {\nA; B; C\n}\nA --> C",
+                "group G {\nA, B, C\n}\nA --> C",
                 "line 4: services 'A' and 'C' must be adjacent within group 'G'",
             ),
             (
@@ -463,7 +420,7 @@ mod tests {
 +-------+",
             ),
             (
-                "group G {\nA; B\n}",
+                "group G {\nA, B\n}",
                 r"+ G --------------+
 |                 |
 | +---+     +---+ |
@@ -473,7 +430,7 @@ mod tests {
 +-----------------+",
             ),
             (
-                "group G {\nA; B\n}\nA --> B",
+                "group G {\nA, B\n}\nA --> B",
                 r"+ G --------------+
 |                 |
 | +---+     +---+ |
@@ -483,7 +440,7 @@ mod tests {
 +-----------------+",
             ),
             (
-                "# comment\n\ngroup G {\n# ignored\nA; B\n}\n\nA --> B\n",
+                "# comment\n\ngroup G {\n# ignored\nA, B\n}\n\nA --> B\n",
                 r"+ G --------------+
 |                 |
 | +---+     +---+ |
@@ -493,7 +450,7 @@ mod tests {
 +-----------------+",
             ),
             (
-                "group G {\nA; B\n}\nB --> A",
+                "group G {\nA, B\n}\nB --> A",
                 r"+ G --------------+
 |                 |
 | +---+     +---+ |
@@ -557,7 +514,7 @@ mod tests {
 +-------+",
             ),
             (
-                "group G1 {\nA; B\n}\ngroup G2 {\nC; D\n}",
+                "group G1 {\nA, B\n}\ngroup G2 {\nC, D\n}",
                 r"+ G1 -------------+
 |                 |
 | +---+     +---+ |
@@ -575,7 +532,7 @@ mod tests {
 +-----------------+",
             ),
             (
-                "group G1 {\nA; B\n}\ngroup G2 {\nC; D\n}\nA --> B\nB --> C",
+                "group G1 {\nA, B\n}\ngroup G2 {\nC, D\n}\nA --> B\nB --> C",
                 r"+ G1 -------------+
 |                 |
 | +---+     +---+ |
@@ -594,7 +551,7 @@ mod tests {
 +-----------------+",
             ),
             (
-                "group G1 {\nA; B; C\n}\ngroup G2 {\nD; E\n}\nA --> E\nC --> E",
+                "group G1 {\nA, B, C\n}\ngroup G2 {\nD, E\n}\nA --> E\nC --> E",
                 r"+ G1 -----------------------+
 |                           |
 | +---+     +---+     +---+ |

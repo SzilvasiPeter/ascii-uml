@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
-use super::block::{canvas, draw_hline, draw_text, draw_vline, put, render_canvas};
+use super::block::{canvas, draw_frame, draw_hline, draw_text, draw_vline, put, render_canvas};
+use super::{parse_document, single_block};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Side {
@@ -66,69 +67,52 @@ struct PendingRelation {
 
 impl Diagram {
     fn parse(input: &str) -> Result<Self, String> {
-        let (mut system, mut system_line, mut open) = (None, 0, false);
-        let (mut use_cases, mut actors, mut relations, mut names) =
-            (vec![], vec![], vec![], HashSet::new());
-        for (index, raw) in input.lines().enumerate() {
-            let (line_number, line) = (index + 1, raw.trim());
-            if line.is_empty() || line.starts_with('#') {
-                continue;
+        let document = parse_document(input, "system")?;
+        let system_block = single_block(&document, "system")?;
+        let system = system_block.name.clone();
+        if !system.is_empty() {
+            check_name(system_block.line, &system)?;
+        }
+        let mut names = HashSet::new();
+        let mut use_cases = Vec::new();
+        for row in &system_block.rows {
+            if row.len() != 1 {
+                return Err(format!("line {}: system rows support one use case", row[0].1));
             }
-            if open {
-                if line == "}" {
-                    open = false;
-                    continue;
-                }
-                check_name(line_number, line)?;
-                if !names.insert(line.to_owned()) {
-                    return Err(format!("line {line_number}: duplicate name '{line}'"));
-                }
-                use_cases.push(line.to_owned());
-                continue;
+            let (name, line) = &row[0];
+            check_name(*line, name)?;
+            if !names.insert(name.to_owned()) {
+                return Err(format!("line {line}: duplicate name '{name}'"));
             }
+            use_cases.push(name.clone());
+        }
+        if use_cases.is_empty() {
+            return Err(format!("line {}: empty system block has no use cases", system_block.line));
+        }
+        let (mut actors, mut relations) = (vec![], vec![]);
+        for (line_number, line) in document.statements {
+            let line = line.as_str();
             if line.contains("..>") || line.contains("-->") {
                 relations.push(parse_relation(line_number, line)?);
-                continue;
-            }
-            if starts_keyword(line, "system", &['{']) {
-                if system.is_some() {
-                    return Err(format!("line {line_number}: duplicate system block"));
-                }
-                let (name, still_open) = parse_system_header(line_number, line)?;
-                (system, system_line, open) = (Some(name), line_number, still_open);
-                continue;
-            }
-            if starts_keyword(line, "actor", &[':', '(']) {
+            } else if line.strip_prefix("actor").is_some_and(|rest| {
+                rest.is_empty()
+                    || rest.starts_with(char::is_whitespace)
+                    || rest.starts_with([':', '('])
+            }) {
                 let (name, side) = parse_actor(line_number, line)?;
                 if !names.insert(name.clone()) {
                     return Err(format!("line {line_number}: duplicate name '{name}'"));
                 }
                 actors.push(Actor { name, side });
-                continue;
+            } else {
+                return Err(format!(
+                    "line {line_number}: expected a system block, actor declaration, association ('-->'), or dependency ('..>')"
+                ));
             }
-            return Err(format!(
-                "line {line_number}: expected a system block, actor declaration, association ('-->'), or dependency ('..>')"
-            ));
-        }
-
-        if open {
-            return Err(format!("line {system_line}: unclosed system block"));
-        }
-        let system = system.ok_or_else(|| "missing system block".to_owned())?;
-        if use_cases.is_empty() {
-            return Err(format!("line {system_line}: empty system block has no use cases"));
         }
         let (associations, dependencies) = collect_relations(&use_cases, &actors, &relations)?;
         Ok(Self { system, use_cases, actors, associations, dependencies })
     }
-}
-
-fn starts_keyword(line: &str, keyword: &str, extra: &[char]) -> bool {
-    line.strip_prefix(keyword).is_some_and(|rest| {
-        rest.is_empty()
-            || rest.starts_with(char::is_whitespace)
-            || rest.starts_with(|character| extra.contains(&character))
-    })
 }
 
 fn validate_name(name: &str) -> Result<(), String> {
@@ -141,23 +125,6 @@ fn check_name(line: usize, name: &str) -> Result<(), String> {
 
 fn check_required(line: usize, label: &str, value: &str) -> Result<(), String> {
     if value.is_empty() { Err(format!("line {line}: {label} must not be empty")) } else { Ok(()) }
-}
-
-fn parse_system_header(line_number: usize, line: &str) -> Result<(String, bool), String> {
-    let rest = line.strip_prefix("system").map_or("", str::trim_start);
-    let brace = rest
-        .find('{')
-        .ok_or_else(|| format!("line {line_number}: expected '{{' after the system name"))?;
-    let name = rest[..brace].trim();
-    if name.is_empty() {
-        return Err(format!("line {line_number}: system name must not be empty"));
-    }
-    check_name(line_number, name)?;
-    let after = rest[brace + 1..].trim();
-    if !after.is_empty() && after != "}" {
-        return Err(format!("line {line_number}: system contents must start on the next line"));
-    }
-    Ok((name.to_owned(), after != "}"))
 }
 
 fn parse_actor(line_number: usize, line: &str) -> Result<(String, Side), String> {
@@ -370,18 +337,11 @@ impl Diagram {
     }
 
     fn draw_boundary(&self, layout: &Layout, canvas: &mut [Vec<char>]) {
-        let (left, right, bottom) =
-            (layout.boundary_left, layout.boundary_right, layout.boundary_h - 1);
-        canvas[0][left..=right].fill('-');
-        canvas[bottom][left..=right].fill('-');
-        for (row, col) in [(0, left), (0, right), (bottom, left), (bottom, right)] {
-            canvas[row][col] = '+';
-        }
-        for row in canvas.iter_mut().take(bottom).skip(1) {
-            row[left] = '|';
-            row[right] = '|';
-        }
-        draw_text(canvas, 0, left + 1, &format!(" {} ", self.system));
+        draw_frame(
+            canvas,
+            (layout.boundary_left, 0, layout.boundary_right, layout.boundary_h - 1),
+            &self.system,
+        );
     }
 
     fn draw_use_cases(&self, layout: &Layout, canvas: &mut [Vec<char>]) {
@@ -500,6 +460,12 @@ mod tests {
     }
 
     #[test]
+    fn system_can_be_unnamed_and_keeps_one_use_case_per_row() {
+        assert!(render("system {\nBrowse\n}").contains("( Browse )"));
+        assert!(run("system S {\nBrowse, Order\n}").is_err());
+    }
+
+    #[test]
     fn renders_the_golden_example() {
         let input = "\
 system Online Shop {
@@ -607,10 +573,8 @@ The User --> Use-Case One
             ("", "missing system block"),
             ("actor A\n", "missing system block"),
             ("system S {\nA\n", "unclosed system block"),
-            ("system{\nA\n}\n", "system name must not be empty"),
-            ("system {\nA\n}\n", "system name must not be empty"),
             ("system S\nA\n", "expected '{'"),
-            ("system S { A\n", "system contents must start on the next line"),
+            ("system S { A\n", "unclosed system block"),
             ("system S {\n}\n", "has no use cases"),
             ("system S {\nA\n}\nsystem T {\nB\n}\n", "duplicate system block"),
             ("system S {\nA\n}\nactor\n", "actor name must not be empty"),

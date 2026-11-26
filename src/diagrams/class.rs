@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::block::{Block, render_canvas};
+use super::{parse_document, single_block};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -28,6 +29,7 @@ struct Relation {
 struct Diagram {
     rows: Vec<Vec<String>>,
     relations: Vec<Relation>,
+    layout_name: String,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -44,53 +46,28 @@ pub fn run(input: &str) -> Result<String, String> {
 
 impl Diagram {
     fn parse(input: &str) -> Result<Self, String> {
-        let mut rows = Vec::new();
-        let mut relations = Vec::new();
-        let mut seen_layout = false;
-        let mut in_layout = false;
-
-        for (index, raw_line) in input.lines().enumerate() {
-            let line_number = index + 1;
-            let line = raw_line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-
-            if !seen_layout && let Some(rest) = line.strip_prefix("layout") {
-                let rest = rest.trim_start();
-                let rest = rest
-                    .strip_prefix('{')
-                    .ok_or_else(|| format!("line {line_number}: expected '{{' after layout"))?;
-                seen_layout = true;
-                let (content, closed) = split_layout(rest);
-                if let Some(row) = parse_row(content)? {
-                    rows.push(row);
-                }
-                in_layout = !closed;
-                continue;
-            }
-
-            if in_layout {
-                let (content, closed) = split_layout(line);
-                if let Some(row) = parse_row(content)? {
-                    rows.push(row);
-                }
-                if closed {
-                    in_layout = false;
-                }
-                continue;
-            }
-
-            relations.push(parse_relation(line_number, line)?);
+        let document = parse_document(input, "layout")?;
+        let layout = single_block(&document, "layout")?;
+        if !layout.name.is_empty() {
+            validate_name(&layout.name)?;
         }
-
-        if in_layout {
-            return Err("unclosed layout block".to_owned());
-        }
-        if !seen_layout {
-            return Err("missing layout block".to_owned());
-        }
-        rows.retain(|row| !row.is_empty());
+        let rows: Vec<Vec<String>> = layout
+            .rows
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|(name, _)| {
+                        validate_name(name)?;
+                        Ok(name.clone())
+                    })
+                    .collect()
+            })
+            .collect::<Result<_, String>>()?;
+        let relations = document
+            .statements
+            .iter()
+            .map(|(line, text)| parse_relation(*line, text))
+            .collect::<Result<Vec<_>, _>>()?;
         if rows.is_empty() {
             return Err("layout block is empty".to_owned());
         }
@@ -144,7 +121,7 @@ impl Diagram {
             }
         }
 
-        Ok(Self { rows, relations })
+        Ok(Self { rows, relations, layout_name: layout.name.clone() })
     }
 
     fn render(&self) -> String {
@@ -204,25 +181,13 @@ impl Diagram {
         }
 
         let canvas: Vec<Vec<char>> = lines.iter().map(|line| line.chars().collect()).collect();
-        render_canvas(&canvas)
-    }
-}
-
-fn split_layout(line: &str) -> (&str, bool) {
-    line.find('}').map_or((line, false), |position| (&line[..position], true))
-}
-
-fn parse_row(content: &str) -> Result<Option<Vec<String>>, String> {
-    let mut row = Vec::new();
-    for part in content.split(',') {
-        let name = part.trim();
-        if name.is_empty() {
-            continue;
+        let rendered = render_canvas(&canvas);
+        if self.layout_name.is_empty() {
+            rendered
+        } else {
+            super::block::frame(&self.layout_name, &rendered)
         }
-        validate_name(name)?;
-        row.push(name.to_owned());
     }
-    Ok(if row.is_empty() { None } else { Some(row) })
 }
 
 fn validate_name(name: &str) -> Result<(), String> {
@@ -487,6 +452,17 @@ mod tests {
 +---+     +---+";
 
         assert_eq!(render(input), expected);
+    }
+
+    #[test]
+    fn semicolon_starts_a_new_layout_row() {
+        let input = "layout { A, B; C }\nC --> A\n";
+        assert!(render(input).contains("| C |"));
+    }
+
+    #[test]
+    fn named_layout_draws_a_frame() {
+        assert!(render("layout Domain { A }\n").starts_with("+ Domain"));
     }
 
     #[test]

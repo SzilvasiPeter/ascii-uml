@@ -1,6 +1,7 @@
 use std::fmt;
 
 use super::block::{BLOCK_HEIGHT, Block};
+use super::parse_document;
 
 #[derive(Debug)]
 enum ParseError {
@@ -12,21 +13,22 @@ enum ParseError {
     EmptyMessage { ln: usize },
     SelfMessage { ln: usize },
     ControlCharacter { ln: usize },
+    Document(String),
 }
 
 impl fmt::Display for ParseError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (ln, message) = match *self {
+        let (ln, message) = match self {
+            Self::Document(message) => return formatter.write_str(message),
             Self::EmptyInput => (None, "no messages found in input"),
-            Self::MissingColon { ln } => (Some(ln), "expected ':' before the message"),
-            Self::MissingArrow { ln } => (Some(ln), "expected one of: --> <-- ..> <.. --- ..."),
-            Self::MultipleArrows { ln } => (Some(ln), "expected exactly one arrow"),
-            Self::EmptySide { ln } => (Some(ln), "arrow cannot have empty sides"),
-            Self::EmptyMessage { ln } => (Some(ln), "message must not be empty"),
-            Self::SelfMessage { ln } => (Some(ln), "a sender cannot message itself"),
-            Self::ControlCharacter { ln } => (Some(ln), "control characters are not allowed"),
+            Self::MissingColon { ln } => (Some(*ln), "expected ':' before the message"),
+            Self::MissingArrow { ln } => (Some(*ln), "expected one of: --> <-- ..> <.. --- ..."),
+            Self::MultipleArrows { ln } => (Some(*ln), "expected exactly one arrow"),
+            Self::EmptySide { ln } => (Some(*ln), "arrow cannot have empty sides"),
+            Self::EmptyMessage { ln } => (Some(*ln), "message must not be empty"),
+            Self::SelfMessage { ln } => (Some(*ln), "a sender cannot message itself"),
+            Self::ControlCharacter { ln } => (Some(*ln), "control characters are not allowed"),
         };
-
         match ln {
             Some(ln) => write!(formatter, "line {ln}: {message}"),
             None => formatter.write_str(message),
@@ -92,15 +94,18 @@ struct Sequence {
 
 impl Sequence {
     fn parse(input: &str) -> Result<Self, ParseError> {
+        let document = parse_document(input, "").map_err(ParseError::Document)?;
+        if !document.blocks.is_empty() {
+            return Err(ParseError::EmptyInput);
+        }
         let mut participants = Vec::new();
         let mut events = Vec::new();
-        for (ln, line) in input.lines().enumerate().filter_map(|(index, line)| {
-            let line = line.trim();
-            (!line.is_empty() && !line.starts_with('#')).then_some((index + 1, line))
-        }) {
-            let (link, message) = line.split_once(':').ok_or(ParseError::MissingColon { ln })?;
+        for (ln, statement) in document.statements {
+            let line = statement.as_str();
+            let (connection, message) =
+                line.split_once(':').ok_or(ParseError::MissingColon { ln })?;
             let message = message.trim();
-            let mut splits = Arrow::splits(link);
+            let mut splits = Arrow::splits(connection);
             let Some((left, (arrow, points_left), right)) = splits.next() else {
                 return Err(ParseError::MissingArrow { ln });
             };

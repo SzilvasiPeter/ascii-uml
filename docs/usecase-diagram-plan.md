@@ -16,8 +16,8 @@ Customer --> Browse catalog
 Browse catalog ..> Place order: include
 ```
 
-Exactly one non-empty `system` block is required.
-Each non-empty body line defines one use case.
+Exactly one non-empty `system` block is required; its name is optional.
+Each row defines one use case. Semicolons or newlines start rows; use case rows do not support columns.
 Actors default to the left.
 Use `actor(left)` or `actor(right)` to choose a side.
 `-->` associates an actor with a use case.

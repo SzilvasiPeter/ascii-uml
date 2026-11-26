@@ -39,6 +39,25 @@ pub(super) fn draw_text(canvas: &mut [Vec<char>], row: usize, col: usize, text: 
     }
 }
 
+pub(super) fn draw_frame(
+    canvas: &mut [Vec<char>],
+    (left, top, right, bottom): (usize, usize, usize, usize),
+    title: &str,
+) {
+    canvas[top][left..=right].fill('-');
+    canvas[bottom][left..=right].fill('-');
+    for row in canvas.iter_mut().take(bottom).skip(top + 1) {
+        row[left] = '|';
+        row[right] = '|';
+    }
+    for x in [left, right] {
+        for y in [top, bottom] {
+            canvas[y][x] = '+';
+        }
+    }
+    draw_text(canvas, top, left + 1, &format!(" {title} "));
+}
+
 pub(super) fn draw_hline(
     canvas: &mut [Vec<char>],
     row: usize,
@@ -70,6 +89,19 @@ pub(super) fn render_canvas(canvas: &[Vec<char>]) -> String {
         .map(|row| row.iter().copied().collect::<String>().trim_end().to_owned())
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+pub(super) fn frame(title: &str, content: &str) -> String {
+    let lines: Vec<_> = content.lines().collect();
+    let width =
+        lines.iter().map(|line| line.chars().count()).max().unwrap_or(0).max(title.chars().count())
+            + 4;
+    let mut canvas = canvas(width, lines.len() + 2);
+    draw_frame(&mut canvas, (0, 0, width - 1, lines.len() + 1), title);
+    for (row, line) in lines.iter().enumerate() {
+        draw_text(&mut canvas, row + 1, 1, &format!(" {line}"));
+    }
+    render_canvas(&canvas)
 }
 
 /// A rectangle with equal-width rows for reliable composition.
