@@ -542,8 +542,7 @@ A --> B
 
     #[test]
     fn detects_duplicate_same_row_pairs_in_either_direction() {
-        // The first relation has target 'A' on the left and source 'B' on the
-        // right, so the pair is stored as (target, source).
+        // Direction does not distinguish pairs, so reversed relations count as duplicates.
         let error = run("layout { A, B }\nB --> A\nA --|> B\n").unwrap_err();
 
         assert!(

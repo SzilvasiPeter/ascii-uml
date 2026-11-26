@@ -5,8 +5,8 @@ on:
     branches: [main]
   pull_request:
 
-# If a new run starts, cancel any older run for the same workflow and PR/branch.
-# Otherwise, a quick series of pushes would queue several full CI jobs, and only the latest one matters.
+# Cancel older runs for the same workflow, pull request, or branch.
+# This avoids spending CI time on commits superseded by newer pushes.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -36,7 +36,7 @@ jobs:
 
       - uses: taiki-e/install-action@9114bf4d891761788c546334fd37538eae1bf8b3 # v2.87.16
         with:
-          # TODO: use latest shuck-cli after https://github.com/ewhauser/shuck/issues/1367 solved
+          # TODO: Upgrade shuck-cli when ewhauser/shuck issue 1367 is fixed.
           tool: cargo-machete, cargo-llvm-cov, cargo-audit, cargo-deny, just, shuck-cli@0.2.7, zizmor
 
       - name: Install actionlint

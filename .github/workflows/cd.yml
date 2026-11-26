@@ -53,6 +53,6 @@ jobs:
           NEW_TAG=$(git tag --sort=-creatordate | sed -n '1p')
           OLD_TAG=$(git tag --sort=-creatordate | sed -n '2p')
 
-          # Oldest..newest tag limits the log to commits since the last release
+          # This range keeps release notes focused on commits since the previous tag.
           RANGE="${OLD_TAG:+$OLD_TAG..}$NEW_TAG"
           gh release create "$NEW_TAG" --notes "$(git log "$RANGE" --reverse --pretty=format:"* %s")"

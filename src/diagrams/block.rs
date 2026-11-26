@@ -1,27 +1,19 @@
-//! A rectangular block of text lines that composes horizontally and vertically.
+//! Blocks hold diagram text as rows for aligned composition.
 //!
-//! This module is internal to the diagram renderers (`mod block`, never
-//! exported), so its constructors are infallible and trust their callers: the
-//! parsers reject control characters before any block is built, and every
-//! `text` input is exactly one row. Misuse hardening is deferred until — and
-//! only if — this crate grows a library API (see the TODO in
-//! `diagrams/mod.rs`).
-//!
-//! Whitespace is layout: gaps and offsets are carried by padded lines, so
-//! nothing is ever trimmed. Dimensions come from composition only: `text` is
-//! one verbatim row, and height grows only through `vertical` and `boxed`.
+//! Parsers reject control characters before creating blocks, since they break layout.
+//! Each text block has one row. Spaces carry layout, so composition preserves them.
 
-/// The row count of the [`Block::boxed`] shape.
+/// Number of rows in a boxed block.
 pub(super) const BLOCK_HEIGHT: usize = 3;
 
-/// Shared character-canvas primitives used by diagrams with routed edges.
+/// Canvas helpers let routed edges share and join one drawing surface.
 pub(super) type Canvas = Vec<Vec<char>>;
 
 pub(super) fn canvas(width: usize, height: usize) -> Canvas {
     vec![vec![' '; width]; height]
 }
 
-/// Adds a routed line glyph, merging crossings into a junction.
+/// Draws a line glyph; crossings become `+` so routes stay connected.
 pub(super) fn put(canvas: &mut [Vec<char>], x: usize, y: usize, glyph: char) {
     let current = canvas[y][x];
     let horizontal = |character| matches!(character, '-' | '.');
@@ -71,7 +63,7 @@ pub(super) fn draw_vline(
     }
 }
 
-/// Joins a routed character canvas, dropping only trailing layout spaces.
+/// Joins canvas rows and trims their ends to avoid trailing output spaces.
 pub(super) fn render_canvas(canvas: &[Vec<char>]) -> String {
     canvas
         .iter()
@@ -80,39 +72,28 @@ pub(super) fn render_canvas(canvas: &[Vec<char>]) -> String {
         .join("\n")
 }
 
-/// A rectangle of text lines, each padded to the block width.
+/// A rectangle with equal-width rows for reliable composition.
 #[derive(Debug)]
 pub struct Block {
     lines: Vec<String>,
 }
 
 impl Block {
-    /// Builds a block from raw rows, padding every row to the widest one.
+    /// Pads rows to the widest row so the block stays rectangular.
     fn new(rows: Vec<String>) -> Self {
         let width = rows.iter().map(|row| row.chars().count()).max().unwrap_or(0);
         let lines = rows.into_iter().map(|row| padded(row, width)).collect();
         Self { lines }
     }
 
-    /// A single row of drawable text, kept verbatim: leading and trailing
-    /// spaces are layout and are preserved.
-    ///
-    /// Internal contract: exactly one row without control characters. The
-    /// parsers guarantee both before any block is built.
+    /// Keeps one row unchanged because spaces carry layout.
+    /// Callers must reject control characters because they break rendering.
     #[must_use]
     pub fn text(source: impl Into<String>) -> Self {
         Self { lines: vec![source.into()] }
     }
 
-    /// The three-row box shared by the diagram renderers.
-    ///
-    /// ```text
-    /// +---+
-    /// | A |
-    /// +---+
-    /// ```
-    ///
-    /// Internal contract: the label is one row without control characters.
+    /// Wraps a label in the standard three-row class and participant box.
     #[must_use]
     pub fn boxed(label: impl Into<String>) -> Self {
         let label = label.into();
@@ -122,7 +103,7 @@ impl Block {
         Self::new(vec![border.clone(), format!("| {label}{padding}|"), border])
     }
 
-    /// Places this block at the given canvas offset, preserving its spaces.
+    /// Copies the block at `(x, y)`; spaces clear cells for correct layout.
     pub(super) fn draw_on(&self, canvas: &mut [Vec<char>], x: usize, y: usize) {
         for (row, line) in self.lines.iter().enumerate() {
             for (column, character) in line.chars().enumerate() {
@@ -131,8 +112,8 @@ impl Block {
         }
     }
 
-    /// Places blocks left to right with `gap` spaces between neighbors.
-    /// Blocks of different heights are top-aligned; missing rows become spaces.
+    /// Places blocks side by side with `gap` spaces.
+    /// Shorter blocks are padded underneath to keep rows aligned.
     #[must_use]
     pub fn horizontal(blocks: impl IntoIterator<Item = Self>, gap: usize) -> Self {
         let blocks: Vec<_> = blocks.into_iter().collect();
@@ -156,8 +137,8 @@ impl Block {
         Self { lines }
     }
 
-    /// Places blocks top to bottom with `gap` blank rows between neighbors.
-    /// Blocks of different widths are left-aligned; rows are re-padded.
+    /// Stacks blocks with `gap` blank rows between them.
+    /// Rows share a left edge and width for consistent alignment.
     #[must_use]
     pub fn vertical(blocks: impl IntoIterator<Item = Self>, gap: usize) -> Self {
         let mut rows = Vec::new();
@@ -170,14 +151,14 @@ impl Block {
         Self::new(rows)
     }
 
-    /// A blank block of the given size.
+    /// Creates `width` by `height` blank space for diagram gaps.
     #[must_use]
     pub fn spacer(width: usize, height: usize) -> Self {
         let line = " ".repeat(width);
         Self { lines: vec![line; height] }
     }
 
-    /// Joins the rows with `\n` and appends no trailing newline.
+    /// Joins rows without a final newline so callers control line endings.
     #[must_use]
     pub fn render(&self) -> String {
         self.lines.join("\n")

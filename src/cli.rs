@@ -2,7 +2,7 @@ use std::io::Read;
 
 use crate::diagrams::{architecture, class, sequence, usecase};
 
-/// Upper bound for input files is 4 KiB to protect against OOM.
+/// Limit inputs to 4 KiB to bound memory use.
 const MAX_INPUT_BYTES: u64 = 4 * 1024;
 
 const SUBCOMMANDS: &[Subcommand] = &[

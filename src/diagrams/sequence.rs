@@ -58,8 +58,7 @@ enum Arrow {
 }
 
 impl Arrow {
-    // Yields `(left, (arrow, points left), right)` for every arrow occurrence in `link`.
-    // The scan goes position by position so overlapping occurrences are found.
+    // Finds overlapping arrow tokens so ambiguous links can be rejected.
     fn splits(link: &str) -> impl Iterator<Item = (&str, (Self, bool), &str)> {
         let ops = [
             ("-->", (Self::Head(Line::Solid), false)),
@@ -132,7 +131,7 @@ impl Sequence {
     }
 
     fn render(&self) -> String {
-        // `| <name> |` needs 4 border char; `| 1` ensures odd width for a midpoint.
+        // Box padding adds four columns; odd widths give the lifeline a center column.
         let widths: Vec<_> = self.actors.iter().map(|p| (p.chars().count() + 4) | 1).collect();
         let mut gaps: Vec<_> = widths.windows(2).map(|w| w[0] / 2 + w[1] / 2 + 2).collect();
         for event in &self.events {
