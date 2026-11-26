@@ -65,6 +65,24 @@ impl Diagram {
                 return Err(format!("line {line}: unexpected '}}'"));
             } else if is_group_start(text) {
                 let rest = text.strip_prefix("group").unwrap().trim();
+                if let Some(services) =
+                    rest.strip_prefix('{').and_then(|body| body.strip_suffix('}'))
+                {
+                    let mut group = Group { name: "group".to_owned(), line, services: Vec::new() };
+                    for part in services.split(';') {
+                        let name = part.trim();
+                        if name.is_empty() {
+                            continue;
+                        }
+                        validate_name(name, "service", line)?;
+                        group.services.push((name.to_owned(), line));
+                    }
+                    if group.services.is_empty() {
+                        return Err(format!("line {line}: empty group 'group'"));
+                    }
+                    groups.push(group);
+                    continue;
+                }
                 let Some(name) = rest.strip_suffix('{') else {
                     return Err(format!("line {line}: expected '{{' after group name"));
                 };
@@ -365,6 +383,14 @@ fn draw_titles(grid: &mut [Vec<char>], groups: &[Group], tops: &[usize]) {
 #[cfg(test)]
 mod tests {
     use super::run;
+
+    #[test]
+    fn single_line_group() {
+        let output = run("group { A; B; C; }").unwrap();
+        for service in ["A", "B", "C"] {
+            assert!(output.contains(&format!("| {service} |")));
+        }
+    }
 
     #[test]
     fn error_cases() {
