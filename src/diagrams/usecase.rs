@@ -3,119 +3,80 @@ use std::collections::HashSet;
 use super::block::{canvas, draw_frame, draw_hline, draw_text, draw_vline, put, render_canvas};
 use super::{parse_document, single_block};
 
-pub fn run(input: &str) -> Result<String, String> {
-    Diagram::parse(input).map(|diagram| diagram.render())
-}
+const EXPECTED: &str =
+    "a system block, actor declaration, association ('-->'), or dependency ('..>')";
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Side {
-    Left,
-    Right,
+pub fn run(input: &str) -> Result<String, String> {
+    Diagram::parse(input).map(|d| d.render())
 }
 
 struct Actor {
     name: String,
-    side: Side,
+    right: bool,
 }
 
-impl Actor {
-    fn width(&self) -> usize {
-        self.name.chars().count().max(3)
-    }
-}
-
-struct Association {
-    actor: String,
-    use_case: usize,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum DependencyKind {
-    Include,
-    Extend,
-}
-
-impl DependencyKind {
-    const fn label(self) -> &'static str {
-        if matches!(self, Self::Include) { "include" } else { "extend" }
-    }
-}
-
-struct Dependency {
-    source: usize,
-    target: usize,
-    kind: DependencyKind,
+struct Edge {
+    src: usize,
+    dst: usize,
+    dep: Option<&'static str>,
 }
 
 struct Diagram {
     system: String,
-    use_cases: Vec<String>,
+    ucs: Vec<String>,
     actors: Vec<Actor>,
-    associations: Vec<Association>,
-    dependencies: Vec<Dependency>,
+    edges: Vec<Edge>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum RelationKind {
-    Association,
-    Include,
-    Extend,
-}
-
-struct PendingRelation {
-    source: String,
-    target: String,
-    kind: RelationKind,
-    line: usize,
+struct Relation {
+    src: String,
+    dst: String,
+    dep: Option<&'static str>,
+    ln: usize,
 }
 
 impl Diagram {
     fn parse(input: &str) -> Result<Self, String> {
-        let document = parse_document(input, "system")?;
-        let system_block = single_block(&document, "system")?;
-        let system = system_block.name.clone();
+        let doc = parse_document(input, "system")?;
+        let block = single_block(&doc, "system")?;
+        let system = block.name.clone();
         if !system.is_empty() {
-            check_name(system_block.line, &system)?;
+            check_name(block.line, &system)?;
         }
         let mut names = HashSet::new();
-        let mut use_cases = Vec::new();
-        for row in &system_block.rows {
-            if row.len() != 1 {
+        let mut ucs = Vec::new();
+        for row in &block.rows {
+            let [entry] = row.as_slice() else {
                 return Err(format!("line {}: system rows support one use case", row[0].1));
+            };
+            let (name, ln) = entry;
+            check_name(*ln, name)?;
+            if !names.insert(name.clone()) {
+                return Err(format!("line {ln}: duplicate name '{name}'"));
             }
-            let (name, line) = &row[0];
-            check_name(*line, name)?;
-            if !names.insert(name.to_owned()) {
-                return Err(format!("line {line}: duplicate name '{name}'"));
-            }
-            use_cases.push(name.clone());
+            ucs.push(name.clone());
         }
-        if use_cases.is_empty() {
-            return Err(format!("line {}: empty system block has no use cases", system_block.line));
+        if ucs.is_empty() {
+            return Err(format!("line {}: empty system block has no use cases", block.line));
         }
-        let (mut actors, mut relations) = (vec![], vec![]);
-        for (line_number, line) in document.statements {
-            let line = line.as_str();
-            if line.contains("..>") || line.contains("-->") {
-                relations.push(parse_relation(line_number, line)?);
-            } else if line.strip_prefix("actor").is_some_and(|rest| {
-                rest.is_empty()
-                    || rest.starts_with(char::is_whitespace)
-                    || rest.starts_with([':', '('])
+        let (mut actors, mut rels) = (Vec::new(), Vec::new());
+        for (ln, text) in doc.statements {
+            if text.contains("..>") || text.contains("-->") {
+                rels.push(parse_relation(ln, &text)?);
+            } else if text.strip_prefix("actor").is_some_and(|r| {
+                r.is_empty() || r.starts_with(char::is_whitespace) || r.starts_with([':', '('])
             }) {
-                let (name, side) = parse_actor(line_number, line)?;
+                let (name, right) = parse_actor(ln, &text)?;
                 if !names.insert(name.clone()) {
-                    return Err(format!("line {line_number}: duplicate name '{name}'"));
+                    return Err(format!("line {ln}: duplicate name '{name}'"));
                 }
-                actors.push(Actor { name, side });
+                actors.push(Actor { name, right });
             } else {
-                return Err(format!(
-                    "line {line_number}: expected a system block, actor declaration, association ('-->'), or dependency ('..>')"
-                ));
+                return Err(format!("line {ln}: expected {EXPECTED}"));
             }
         }
-        let (associations, dependencies) = collect_relations(&use_cases, &actors, &relations)?;
-        Ok(Self { system, use_cases, actors, associations, dependencies })
+        let edges = resolve(&ucs, &actors, rels)?;
+        Ok(Self { system, ucs, actors, edges })
     }
 }
 
@@ -123,317 +84,204 @@ fn validate_name(name: &str) -> Result<(), String> {
     super::validate_name(name, "", &['{', '}', '#', ',', ':', '|', '<', '>', '(', ')'])
 }
 
-fn check_name(line: usize, name: &str) -> Result<(), String> {
-    validate_name(name).map_err(|message| format!("line {line}: {message}"))
+fn check_name(ln: usize, name: &str) -> Result<(), String> {
+    validate_name(name).map_err(|m| format!("line {ln}: {m}"))
 }
 
-fn check_required(line: usize, label: &str, value: &str) -> Result<(), String> {
-    if value.is_empty() { Err(format!("line {line}: {label} must not be empty")) } else { Ok(()) }
-}
-
-fn parse_actor(line_number: usize, line: &str) -> Result<(String, Side), String> {
-    let rest = line.strip_prefix("actor").map_or("", str::trim_start);
-    let malformed = || format!("line {line_number}: malformed actor line");
-    let (side, name) = if let Some(after) = rest.strip_prefix('(') {
-        let close = after.find(')').ok_or_else(malformed)?;
-        let side = match &after[..close] {
-            "left" => Side::Left,
-            "right" => Side::Right,
-            _ => return Err(malformed()),
-        };
-        let after = &after[close + 1..];
-        if !after.starts_with(char::is_whitespace) {
-            return Err(malformed());
+fn parse_actor(ln: usize, text: &str) -> Result<(String, bool), String> {
+    let rest = text.strip_prefix("actor").unwrap_or_default().trim_start();
+    let bad = || format!("line {ln}: malformed actor line");
+    let (right, name) = if let Some(a) = rest.strip_prefix('(') {
+        let (side, a) = a.split_once(')').ok_or_else(bad)?;
+        let right = ["left", "right"].iter().position(|s| *s == side).map(|i| i == 1);
+        if !a.starts_with(char::is_whitespace) {
+            return Err(bad());
         }
-        (side, after.trim_start())
+        (right.ok_or_else(bad)?, a.trim_start())
     } else if rest.starts_with(':') {
-        return Err(malformed());
+        return Err(bad());
     } else {
-        (Side::Left, rest)
+        (false, rest)
     };
     let name = name.trim();
     if name.is_empty() {
-        return Err(format!("line {line_number}: actor name must not be empty"));
+        return Err(format!("line {ln}: actor name must not be empty"));
     }
-    check_name(line_number, name)?;
-    Ok((name.to_owned(), side))
+    check_name(ln, name)?;
+    Ok((name.to_owned(), right))
 }
 
-fn parse_relation(ln_num: usize, line: &str) -> Result<PendingRelation, String> {
-    if let Some((source, rest)) = line.split_once("..>") {
-        let (target, label) = rest
-            .split_once(':')
-            .ok_or_else(|| format!("line {ln_num}: missing dependency label"))?;
-        let (source, target, label) = (source.trim(), target.trim(), label.trim());
-        check_required(ln_num, "dependency source", source)?;
-        check_required(ln_num, "dependency target", target)?;
-        check_name(ln_num, source)?;
-        check_name(ln_num, target)?;
-        let kind = match label {
-            "include" => RelationKind::Include,
-            "extend" => RelationKind::Extend,
-            "" => return Err(format!("line {ln_num}: missing dependency label")),
-            _ => return Err(format!("line {ln_num}: invalid dependency label '{label}'")),
-        };
-        let (source, target) = (source.to_owned(), target.to_owned());
-        return Ok(PendingRelation { source, target, kind, line: ln_num });
+fn parse_relation(ln: usize, text: &str) -> Result<Relation, String> {
+    if let Some((src, rest)) = text.split_once("..>") {
+        let missing = || format!("line {ln}: missing dependency label");
+        let (dst, label) = rest.split_once(':').ok_or_else(missing)?;
+        let (src, dst) = ends(ln, "dependency", src, dst)?;
+        let dep = ["include", "extend"].into_iter().find(|d| *d == label.trim());
+        let dep = dep.ok_or_else(|| match label.trim() {
+            "" => missing(),
+            label => format!("line {ln}: invalid dependency label '{label}'"),
+        })?;
+        return Ok(Relation { src, dst, dep: Some(dep), ln });
     }
+    let bad = || format!("line {ln}: expected an association ('-->')");
+    let (src, dst) = text.split_once("-->").ok_or_else(bad)?;
+    let (src, dst) = ends(ln, "association", src, dst)?;
+    Ok(Relation { src, dst, dep: None, ln })
+}
 
-    let (source, target) = line
-        .split_once("-->")
-        .ok_or_else(|| format!("line {ln_num}: expected an association ('-->')"))?;
-    let (source, target) = (source.trim(), target.trim());
-    check_required(ln_num, "association source", source)?;
-    check_required(ln_num, "association target", target)?;
-    check_name(ln_num, source)?;
-    check_name(ln_num, target)?;
-    let (source, target) = (source.to_owned(), target.to_owned());
-    Ok(PendingRelation { source, target, kind: RelationKind::Association, line: ln_num })
+fn ends(ln: usize, kind: &str, a: &str, b: &str) -> Result<(String, String), String> {
+    let (a, b) = (a.trim(), b.trim());
+    if a.is_empty() || b.is_empty() {
+        let side = if a.is_empty() { "source" } else { "target" };
+        return Err(format!("line {ln}: {kind} {side} must not be empty"));
+    }
+    check_name(ln, a)?;
+    check_name(ln, b)?;
+    Ok((a.to_owned(), b.to_owned()))
 }
 
 #[derive(Clone, Copy)]
-enum Endpoint {
-    Actor(usize),
-    UseCase(usize),
+enum Ep {
+    A(usize),
+    U(usize),
 }
 
-fn collect_relations(
-    use_cases: &[String],
-    actors: &[Actor],
-    relations: &[PendingRelation],
-) -> Result<(Vec<Association>, Vec<Dependency>), String> {
-    let endpoint = |name: &str| {
-        use_cases
-            .iter()
-            .position(|use_case| use_case == name)
-            .map(Endpoint::UseCase)
-            .or_else(|| actors.iter().position(|actor| actor.name == name).map(Endpoint::Actor))
-    };
-    let (mut associations, mut dependencies) = (vec![], vec![]);
-    let (mut pairs, mut dependency_pairs, mut label_rows) =
-        (HashSet::new(), HashSet::new(), HashSet::new());
-
-    for relation in relations {
-        let line = relation.line;
-        let find = |name: &str| {
-            endpoint(name).ok_or_else(|| format!("line {line}: unknown endpoint '{name}'"))
+fn resolve(ucs: &[String], actors: &[Actor], rels: Vec<Relation>) -> Result<Vec<Edge>, String> {
+    let (mut edges, mut pairs) = (Vec::new(), HashSet::new());
+    let (mut deps, mut rows) = (HashSet::new(), HashSet::new());
+    for Relation { src: rs, dst: rd, dep, ln } in rels {
+        let find = |n: &str| {
+            let u = ucs.iter().position(|u| u == n).map(Ep::U);
+            u.or_else(|| actors.iter().position(|a| a.name == n).map(Ep::A))
+                .ok_or_else(|| format!("line {ln}: unknown endpoint '{n}'"))
         };
-        let (source, target) = (find(&relation.source)?, find(&relation.target)?);
-        if relation.source == relation.target {
-            return Err(format!("line {line}: a relation cannot be a self relation"));
+        let (src, dst) = (find(&rs)?, find(&rd)?);
+        if rs == rd {
+            return Err(format!("line {ln}: a relation cannot be a self relation"));
         }
-        match (relation.kind, source, target) {
-            (RelationKind::Association, Endpoint::Actor(actor), Endpoint::UseCase(use_case))
-            | (RelationKind::Association, Endpoint::UseCase(use_case), Endpoint::Actor(actor)) => {
-                let actor = actors[actor].name.clone();
-                if !pairs.insert((actor.clone(), use_case)) {
-                    return Err(format!("line {line}: duplicate relation"));
-                }
-                associations.push(Association { actor, use_case });
+        if dep.is_none() {
+            let (actor, uc) = match (src, dst) {
+                (Ep::A(a), Ep::U(u)) | (Ep::U(u), Ep::A(a)) => (a, u),
+                (Ep::A(_), Ep::A(_)) => return Err(format!("line {ln}: two actors")),
+                (Ep::U(_), Ep::U(_)) => return Err(format!("line {ln}: two use cases")),
+            };
+            if !pairs.insert((actor, uc)) {
+                return Err(format!("line {ln}: duplicate relation"));
             }
-            (RelationKind::Association, Endpoint::Actor(_), Endpoint::Actor(_)) => {
-                return Err(format!("line {line}: two actors"));
-            }
-            (RelationKind::Association, Endpoint::UseCase(_), Endpoint::UseCase(_)) => {
-                return Err(format!("line {line}: two use cases"));
-            }
-            (_, Endpoint::Actor(_), _) | (_, _, Endpoint::Actor(_)) => {
-                return Err(format!("line {line}: involve an actor"));
-            }
-            (_, Endpoint::UseCase(source), Endpoint::UseCase(target)) => {
-                if !dependency_pairs.insert((source, target)) {
-                    return Err(format!("line {line}: duplicate dependency"));
-                }
-                let source_row = 2 + 4 * source;
-                let label_row = if target > source { source_row + 2 } else { source_row - 2 };
-                if !label_rows.insert(label_row) {
-                    return Err(format!("line {line}: label row overlaps"));
-                }
-                let kind = if relation.kind == RelationKind::Include {
-                    DependencyKind::Include
-                } else {
-                    DependencyKind::Extend
-                };
-                dependencies.push(Dependency { source, target, kind });
-            }
+            edges.push(Edge { src: actor, dst: uc, dep: None });
+            continue;
         }
+        let (Ep::U(src), Ep::U(dst)) = (src, dst) else {
+            return Err(format!("line {ln}: involve an actor"));
+        };
+        if !deps.insert((src, dst)) {
+            return Err(format!("line {ln}: duplicate dependency"));
+        }
+        let row = 2 + 4 * src;
+        let lr = if dst > src { row + 2 } else { row - 2 };
+        if !rows.insert(lr) {
+            return Err(format!("line {ln}: label row overlaps"));
+        }
+        edges.push(Edge { src, dst, dep });
     }
-    Ok((associations, dependencies))
+    Ok(edges)
 }
 
 struct Layout {
-    boundary_left: usize,
-    boundary_right: usize,
-    boundary_h: usize,
-    right_col: usize,
-    uc_left: usize,
-    text_w: usize,
-    canvas_w: usize,
-    canvas_h: usize,
+    left: usize,
+    right: usize,
+    rcol: usize,
+    tw: usize,
 }
 
 impl Layout {
-    fn new(diagram: &Diagram) -> Self {
-        let count = |side| diagram.actors.iter().filter(|actor| actor.side == side).count();
-        let max = |side| {
-            diagram
-                .actors
-                .iter()
-                .filter(|actor| actor.side == side)
-                .map(Actor::width)
-                .max()
-                .unwrap_or(0)
-        };
-        let (n_l, n_r) = (count(Side::Left), count(Side::Right));
-        let (left_max, right_max) = (max(Side::Left), max(Side::Right));
-        let uc_w =
-            diagram.use_cases.iter().map(|name| name.chars().count() + 4).max().expect("use case");
-        let n_lanes = diagram
-            .dependencies
-            .iter()
-            .filter(|dependency| dependency.source.abs_diff(dependency.target) != 1)
-            .count();
-        let boundary_left = left_max + if n_l > 0 { 2 * n_l + 1 } else { 0 };
-        let uc_left = boundary_left + 2;
-        let text_w = if diagram.dependencies.is_empty() { uc_w } else { uc_w.max(13) };
-        let inner_w = (text_w + 2 + 2 * n_lanes).max(diagram.system.chars().count() + 4);
-        let boundary_right = boundary_left + inner_w + 1;
-        let right_col = boundary_right + 1 + if n_r > 0 { 2 * n_r + 1 } else { 0 };
-        let boundary_h = 4 * diagram.use_cases.len() + 1;
-        let actor_h = if n_l.max(n_r) == 0 { 0 } else { 5 * n_l.max(n_r) };
-        let canvas_w = if n_r > 0 {
-            (boundary_right + 1).max(right_col + right_max)
-        } else {
-            boundary_right + 1
-        };
-
-        Self {
-            boundary_left,
-            boundary_right,
-            boundary_h,
-            right_col,
-            uc_left,
-            text_w,
-            canvas_w,
-            canvas_h: boundary_h.max(actor_h),
+    fn new(d: &Diagram) -> (Self, usize, usize) {
+        let (mut n, mut w) = ([0; 2], [0; 2]);
+        for a in &d.actors {
+            let i = usize::from(a.right);
+            n[i] += 1;
+            w[i] = w[i].max(a.name.chars().count().max(3));
         }
+        let ([nl, nr], [lw, rw]) = (n, w);
+        let uw = d.ucs.iter().map(|n| n.chars().count() + 4).max().unwrap_or(0);
+        let has = d.edges.iter().any(|e| e.dep.is_some());
+        let lanes = d.edges.iter().filter(|e| e.dep.is_some() && e.src.abs_diff(e.dst) > 1).count();
+        let left = lw + 2 * nl + usize::from(nl > 0);
+        let tw = if has { uw.max(13) } else { uw };
+        let right = left + (tw + 2 + 2 * lanes).max(d.system.chars().count() + 4) + 1;
+        let rcol = right + 1 + 2 * nr + usize::from(nr > 0);
+        let w = if nr > 0 { (right + 1).max(rcol + rw) } else { right + 1 };
+        let h = (4 * d.ucs.len() + 1).max(5 * nl.max(nr));
+        (Self { left, right, rcol, tw }, w, h)
     }
 }
 
 impl Diagram {
     fn render(&self) -> String {
-        let layout = Layout::new(self);
-        let mut canvas = canvas(layout.canvas_w, layout.canvas_h);
-        self.draw_boundary(&layout, &mut canvas);
-        self.draw_use_cases(&layout, &mut canvas);
-        self.draw_actors(&layout, &mut canvas);
-        self.draw_associations(&layout, &mut canvas);
-        self.draw_dependencies(&layout, &mut canvas);
-        render_canvas(&canvas)
-    }
-
-    fn draw_boundary(&self, layout: &Layout, canvas: &mut [Vec<char>]) {
-        draw_frame(
-            canvas,
-            (layout.boundary_left, 0, layout.boundary_right, layout.boundary_h - 1),
-            &self.system,
-        );
-    }
-
-    fn draw_use_cases(&self, layout: &Layout, canvas: &mut [Vec<char>]) {
-        for (index, name) in self.use_cases.iter().enumerate() {
-            draw_text(canvas, 2 + 4 * index, layout.uc_left, &format!("( {name} )"));
+        let (l, w, h) = Layout::new(self);
+        let mut c = canvas(w, h);
+        draw_frame(&mut c, (l.left, 0, l.right, 4 * self.ucs.len()), &self.system);
+        for (i, n) in self.ucs.iter().enumerate() {
+            draw_text(&mut c, 2 + 4 * i, l.left + 2, &format!("( {n} )"));
         }
+        self.draw_actors(&l, &mut c);
+        self.draw_dependencies(&l, &mut c);
+        render_canvas(&c)
     }
 
     fn draw_actors(&self, layout: &Layout, canvas: &mut [Vec<char>]) {
-        for (actor, index) in self.actors.iter().zip(self.actor_indices()) {
-            let start = if actor.side == Side::Left { 0 } else { layout.right_col };
-            let (width, top) = (actor.width(), 1 + 5 * index);
+        let mut index = [0; 2];
+        for (g, a) in self.actors.iter().enumerate() {
+            let idx = index[usize::from(a.right)];
+            index[usize::from(a.right)] += 1;
+            let start = if a.right { layout.rcol } else { 0 };
+            let (width, top) = (a.name.chars().count().max(3), 1 + 5 * idx);
             let left = start + (width - 3) / 2;
-            draw_text(canvas, top, left, " o ");
-            draw_text(canvas, top + 1, left, "/|\\");
-            draw_text(canvas, top + 2, left, "/ \\");
-            draw_text(
-                canvas,
-                top + 3,
-                start + (width - actor.name.chars().count()) / 2,
-                &actor.name,
-            );
-        }
-    }
-
-    fn draw_associations(&self, layout: &Layout, canvas: &mut [Vec<char>]) {
-        for (actor, index) in self.actors.iter().zip(self.actor_indices()) {
-            let mut linked = self.associations.iter().filter(|a| a.actor == actor.name);
-            let Some(first) = linked.next() else { continue };
-            let figure_left = (actor.width() - 3) / 2;
-            let arms_row = 1 + 5 * index + 1;
-            let (lane, start) = match actor.side {
-                Side::Left => (layout.boundary_left - 2 - 2 * index, figure_left + 3),
-                Side::Right => {
-                    (layout.boundary_right + 2 + 2 * index, layout.right_col + figure_left - 1)
-                }
-            };
-            draw_hline(canvas, arms_row, start, lane, '-');
-            canvas[arms_row][lane] = '+';
-            for association in std::iter::once(first).chain(linked) {
-                let row = 2 + 4 * association.use_case;
-                draw_vline(canvas, lane, arms_row, row, '|');
-                let right =
-                    layout.uc_left + self.use_cases[association.use_case].chars().count() + 3;
-                match actor.side {
-                    Side::Left => draw_hline(canvas, row, lane, layout.uc_left - 1, '-'),
-                    Side::Right => draw_hline(canvas, row, right + 1, lane, '-'),
-                }
+            for (row, glyph) in [" o ", "/|\\", "/ \\"].into_iter().enumerate() {
+                draw_text(canvas, top + row, left, glyph);
+            }
+            draw_text(canvas, top + 3, start + (width - a.name.chars().count()) / 2, &a.name);
+            let mut links = self.edges.iter().filter(|e| e.dep.is_none() && e.src == g).peekable();
+            let Some(_) = links.peek() else { continue };
+            let arms = top + 1;
+            let lane = if a.right { layout.right + 2 + 2 * idx } else { layout.left - 2 - 2 * idx };
+            let start = if a.right { left - 1 } else { left + 3 };
+            draw_hline(canvas, arms, start, lane, '-');
+            canvas[arms][lane] = '+';
+            for e in links {
+                let row = 2 + 4 * e.dst;
+                draw_vline(canvas, lane, arms, row, '|');
+                let right = layout.left + self.ucs[e.dst].chars().count() + 5;
+                let (x, y) = if a.right { (right + 1, lane) } else { (lane, layout.left + 1) };
+                draw_hline(canvas, row, x, y, '-');
             }
         }
     }
 
     fn draw_dependencies(&self, layout: &Layout, canvas: &mut [Vec<char>]) {
-        let (down_x, up_x) = (layout.uc_left + 2, layout.uc_left + 4);
-        let mut next_lane = 0;
-        for dependency in &self.dependencies {
-            let (source_row, target_row) = (2 + 4 * dependency.source, 2 + 4 * dependency.target);
-            let (port, port_row, label_row, arrow_row, arrow) = if target_row > source_row {
-                (down_x, source_row + 1, source_row + 2, target_row - 1, 'v')
-            } else {
-                (up_x, source_row - 1, source_row - 2, target_row + 1, '^')
-            };
-            put(canvas, port, port_row, ':');
-            let label = dependency.kind.label();
-            if dependency.source.abs_diff(dependency.target) != 1 {
-                let lane = layout.boundary_left + 3 + layout.text_w + 2 * next_lane;
-                next_lane += 1;
-                draw_hline(canvas, label_row, port + 2 + label.chars().count(), lane - 1, '.');
-                put(canvas, lane, label_row, '+');
-                let (top, bottom) = if label_row < arrow_row {
-                    (label_row + 1, arrow_row - 1)
-                } else {
-                    (arrow_row + 1, label_row - 1)
-                };
-                draw_vline(canvas, lane, top, bottom, ':');
-                put(canvas, lane, arrow_row, '+');
-                draw_hline(canvas, arrow_row, port + 1, lane - 1, '.');
+        let (down, up) = (layout.left + 4, layout.left + 6);
+        let mut lane = 0;
+        for e in self.edges.iter().filter(|e| e.dep.is_some()) {
+            let (src, dst) = (2 + 4 * e.src, 2 + 4 * e.dst);
+            let (pos, py, ch) = if dst > src { (down, dst - 1, 'v') } else { (up, dst + 1, '^') };
+            let (pr, lr) = if dst > src { (src + 1, src + 2) } else { (src - 1, src - 2) };
+            put(canvas, pos, pr, ':');
+            let label = e.dep.unwrap();
+            if e.src.abs_diff(e.dst) != 1 {
+                let px = layout.left + 3 + layout.tw + 2 * lane;
+                lane += 1;
+                draw_hline(canvas, lr, pos + 2 + label.chars().count(), px - 1, '.');
+                put(canvas, px, lr, '+');
+                let (top, bottom) = (lr.min(py) + 1, lr.max(py) - 1);
+                draw_vline(canvas, px, top, bottom, ':');
+                put(canvas, px, py, '+');
+                draw_hline(canvas, py, pos + 1, px - 1, '.');
             }
-            draw_text(canvas, label_row, port, ": ");
-            draw_text(canvas, label_row, port + 2, label);
-            canvas[arrow_row][port] = arrow;
+            draw_text(canvas, lr, pos, &format!(": {label}"));
+            canvas[py][pos] = ch;
         }
     }
-
-    fn actor_indices(&self) -> Vec<usize> {
-        self.actors
-            .iter()
-            .scan((0, 0), |(left, right), actor| {
-                let counter = if matches!(actor.side, Side::Left) { left } else { right };
-                *counter += 1;
-                Some(*counter - 1)
-            })
-            .collect()
-    }
 }
-
 #[cfg(test)]
 mod tests {
     use super::{parse_relation, run, validate_name};
@@ -443,13 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn system_can_be_unnamed_and_keeps_one_use_case_per_row() {
-        assert!(render("system {\nBrowse\n}").contains("( Browse )"));
-        assert!(run("system S {\nBrowse, Order\n}").is_err());
-    }
-
-    #[test]
-    fn renders_the_golden_example() {
+    fn renders_diagrams() {
         let input = "\
 system Online Shop {
   Browse catalog
@@ -482,22 +324,15 @@ Payment Gateway --> Pay
             "           +----------------------+",
         );
         assert_eq!(render(input), expected);
-    }
-
-    #[test]
-    fn renders_actor_variants() {
+        assert!(render("system {\nBrowse\n}").contains("( Browse )"));
+        assert!(run("system S {\nBrowse, Order\n}").is_err());
         let output = render(
             "system S {\n  A\n}\nactor Default\nactor(left) Left Actor\nactor(right) Right Actor\nactor Unused\nDefault --> A\nLeft Actor --> A\nRight Actor --> A\n",
         );
         let lines: Vec<_> = output.lines().collect();
         assert!(lines[4].starts_with("Default") && lines[4].ends_with("Right Actor"));
-        assert!(lines[9].starts_with("Left Actor"));
-        assert!(lines[14].starts_with("Unused"));
+        assert!(lines[9].starts_with("Left Actor") && lines[14].starts_with("Unused"));
         assert!(lines[2].contains('+') && lines[7].contains('+'));
-    }
-
-    #[test]
-    fn renders_associations() {
         let output = render(
             "system S {\n  A\n  B\n}\nactor Person\nactor(right) R\nPerson --> A\nPerson --> B\nB --> R\n",
         );
@@ -505,28 +340,20 @@ Payment Gateway --> Pay
         assert!(output.contains("( A )") && output.contains("( B )-"));
         let ports = render("system S {\nA\n}\nactor L\nactor(right) R\nL --> A\nR --> A\n");
         assert!(ports.lines().nth(2).unwrap().contains("-( A )-"));
-    }
-
-    #[test]
-    fn routes_dependencies() {
-        let down = render("system S {\nA\nB\n}\nA ..> B: include\n");
-        assert!(down.lines().nth(3).unwrap().contains(':'));
-        assert!(down.lines().nth(4).unwrap().contains(": include"));
-        assert!(down.lines().nth(5).unwrap().contains('v'));
-        let up = render("system S {\nA\nB\n}\nB ..> A: extend\n");
-        assert!(up.lines().nth(5).unwrap().contains(':'));
-        assert!(up.lines().nth(4).unwrap().contains(": extend"));
-        assert!(up.lines().nth(3).unwrap().contains('^'));
+        let down: Vec<_> =
+            render("system S {\nA\nB\n}\nA ..> B: include\n").lines().map(str::to_owned).collect();
+        assert!(down[3].contains(':') && down[4].contains(": include"));
+        assert!(down[5].contains('v'));
+        let up: Vec<_> =
+            render("system S {\nA\nB\n}\nB ..> A: extend\n").lines().map(str::to_owned).collect();
+        assert!(up[5].contains(':') && up[4].contains(": extend"));
+        assert!(up[3].contains('^'));
         let lane = render("system S {\nA\nB\nC\n}\nA ..> C: include\n");
         assert!(lane.lines().any(|line| line.contains("include") && line.contains('+')));
         assert!(lane.lines().any(|line| line.contains('v') && line.contains('+')));
         let uplane = render("system S {\nA\nB\nC\n}\nC ..> A: extend\n");
         assert!(uplane.lines().any(|line| line.contains('^') && line.contains('+')));
         assert!(uplane.lines().any(|line| line.contains("extend") && line.contains('+')));
-    }
-
-    #[test]
-    fn ignores_comments_and_accepts_names() {
         let input = "\
 # comment
 system My.System {
@@ -546,19 +373,13 @@ The User --> Use-Case One
     }
 
     #[test]
-    fn rejects_empty_name() {
-        assert_eq!(validate_name("").unwrap_err(), "name must not be empty");
-    }
-
-    #[test]
-    fn parse_relation_requires_an_operator() {
-        let error = parse_relation(4, "X - Y").err().unwrap();
-        assert_eq!(error, "line 4: expected an association ('-->')");
-    }
-
-    #[test]
     fn rejects_parser_and_validation_errors() {
-        let cases = [
+        assert_eq!(validate_name("").unwrap_err(), "name must not be empty");
+        assert_eq!(
+            parse_relation(4, "X - Y").err().unwrap(),
+            "line 4: expected an association ('-->')"
+        );
+        for (input, expected) in [
             ("", "missing system block"),
             ("actor A\n", "missing system block"),
             ("system S {\nA\n", "unclosed system"),
@@ -604,8 +425,7 @@ The User --> Use-Case One
             ("system S {\nA\nB\n}\nX:Y ..> B: include\n", "invalid name"),
             ("system S {\nA\nB\n}\nA ..> B|C: include\n", "invalid name"),
             ("system S {\nA\n}\nnot a declaration\n", "expected a system block, actor declaration"),
-        ];
-        for (input, expected) in cases {
+        ] {
             let error = run(input).unwrap_err();
             assert!(error.contains(expected), "expected {expected:?} for {input:?}, got {error:?}");
         }
