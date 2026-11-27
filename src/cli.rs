@@ -38,69 +38,43 @@ struct Subcommand {
 pub fn usage() -> String {
     let commands = SUBCOMMANDS
         .iter()
-        .map(|command| format!("  {:<13} {}", command.name, command.about))
+        .map(|cmd| format!("  {:<13} {}", cmd.name, cmd.about))
         .collect::<Vec<_>>()
         .join("\n");
 
     format!(
         "\
-Create ASCII UML diagrams from simple text descriptions.
+Create ASCII UML diagrams from text descriptions.
 
-Usage: {} <COMMAND> [OPTIONS] FILE
+Usage: {} <COMMAND> FILE
 
 Commands:
 {commands}
 
 Options:
-  -h, --help     Show this help message
-  -V, --version  Show version information
+  -h, --help     Show help
+  -V, --version  Show version
 
-Input must be a regular file no larger than {} KiB.
+Input must be a regular file, max {} KiB.
 
-Sequence input format:
-  sender --> receiver: sender sends request to receiver
-  sender <-- receiver: receiver sends request to sender
-  sender ..> receiver: sender reply to receiver
-  sender <.. receiver: receiver reply to sender
-  sender --- receiver: connection established
-  sender ... receiver: wait for a minute
+Sequence:
+  sender --> receiver: request
+  sender ..> receiver: reply
 
-Class input format:
-  Dog --|> Animal
-  SmartLock ..|> LockableDevice
-  Car *-- Engine
-  Student --> Course
+Class:
+  layout {{ A, B }}
+  A --|> B
+  A *-- B
+  A --> B
 
-  layout {{
-      Dog, Animal
-      SmartLock, LockableDevice
-      Car, Engine
-      Student, Course
-  }}
+Use case:
+  system S {{ Use case }}
+  actor User
+  User --> Use case
 
-Use case input format:
-  system System Name {{
-      Top use case
-      Middle use case
-      Bottom use case
-  }}
-
-  actor Implicit Left
-  actor(left) Explicit Left
-  actor(right) Right Actor
-
-  Implicit Left --> Top use case
-  Right Actor --> Top use case
-  Explicit Left --> Bottom use case
-  Middle use case ..> Top use case: include
-  Middle use case ..> Bottom use case: extend
-
-Architecture input format:
-  group Name {{
-    service, database
-  }}
-
-  service --> database
+Architecture:
+  group G {{ A; B }}
+  A --> B
 ",
         env!("CARGO_PKG_NAME"),
         MAX_INPUT_BYTES / 1024,
@@ -119,65 +93,45 @@ pub fn run(args: &[String]) {
 
 fn execute(args: &[String]) -> Result<String, Error> {
     let Some(argument) = args.first() else {
-        return Err(Error::Usage("missing command".to_owned()));
+        return Err(Error::Usage("missing command".into()));
     };
-
-    for argument in args {
-        match argument.as_str() {
-            "-h" | "--help" => {
-                return Ok(usage());
-            }
-            "-V" | "--version" => {
-                return Ok(format!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")));
-            }
-            option if option.starts_with('-') => {
-                return Err(Error::Usage(format!("unknown option '{}'", option.escape_debug())));
-            }
+    let (pkg_name, pkg_version) = (env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+    for arg in args {
+        match arg.as_str() {
+            "-h" | "--help" => return Ok(usage()),
+            "-V" | "--version" => return Ok(format!("{pkg_name} {pkg_version}")),
+            opt if opt.starts_with('-') => return Err(Error::Usage("unknown option".into())),
             _ => {}
         }
     }
-
-    SUBCOMMANDS.iter().find(|command| command.name == argument).map_or_else(
-        || Err(Error::Usage(format!("unknown command '{}'", argument.escape_debug()))),
-        |command| run_subcommand(command, &args[1..]),
+    SUBCOMMANDS.iter().find(|cmd| cmd.name == argument).map_or_else(
+        || Err(Error::Usage("unknown command".into())),
+        |cmd| run_subcommand(cmd, &args[1..]),
     )
 }
 
 fn run_subcommand(command: &Subcommand, args: &[String]) -> Result<String, Error> {
-    let Some(path) = args.first() else {
-        return Err(Error::Usage("missing input file".to_owned()));
+    let [path] = args else {
+        return Err(match args.len() {
+            0 => Error::Usage("missing input file".into()),
+            _ => Error::Message("too many input files".into()),
+        });
     };
-
-    if args.len() > 1 {
-        return Err(Error::Message("only one input file may be specified".to_owned()));
-    }
-
-    let input = read_input(path)?;
-    let output = (command.run)(&input).map_err(Error::Message)?;
-
-    Ok(output)
+    (command.run)(&read_input(path)?).map_err(Error::Message)
 }
 
 fn read_input(path: &str) -> Result<String, Error> {
-    let escaped_path = path.escape_debug();
-    let mut file = std::fs::File::open(path)
-        .map_err(|error| Error::Message(format!("failed to read '{escaped_path}': {error}")))?;
-    let metadata = file
-        .metadata()
-        .map_err(|error| Error::Message(format!("failed to read '{escaped_path}': {error}")))?;
-
-    if !metadata.is_file() {
-        return Err(Error::Message(format!("input file '{escaped_path}' is not a regular file")));
-    }
-
-    if metadata.len() > MAX_INPUT_BYTES {
-        return Err(Error::Message(format!("the {escaped_path} exceeds {MAX_INPUT_BYTES} bytes")));
+    let err = |_| Error::Message("failed to read input file".into());
+    let mut file = std::fs::File::open(path).map_err(err)?;
+    let meta = file.metadata().map_err(err)?;
+    if !meta.is_file() {
+        return Err(Error::Message("input file is not a regular file".into()));
+    } else if meta.len() > MAX_INPUT_BYTES {
+        return Err(Error::Message("input file is too large".into()));
     }
 
     let mut input = String::new();
-    file.read_to_string(&mut input)
-        .map_err(|error| Error::Message(format!("failed to read '{escaped_path}': {error}")))?;
-
+    file.read_to_string(&mut input).map_err(err)?;
     Ok(input)
 }
 
@@ -238,7 +192,7 @@ mod tests {
 
         let args = ["sequence".to_owned(), file.path().display().to_string()];
         let error = execute(&args).unwrap_err().to_string();
-        assert!(error.contains(&format!("exceeds {MAX_INPUT_BYTES} bytes")));
+        assert_eq!(error, "input file is too large");
     }
 
     #[cfg(unix)]
@@ -247,34 +201,29 @@ mod tests {
         let directory = tempfile::TempDir::new().unwrap();
         let args = ["sequence".to_owned(), directory.path().display().to_string()];
         let error = execute(&args).unwrap_err().to_string();
-        assert!(error.contains("is not a regular file"));
+        assert_eq!(error, "input file is not a regular file");
     }
 
     #[test]
     fn escapes_control_characters_in_arguments() {
-        let command = "bad\u{1b}[2J".to_owned();
-        let error = execute(&[command]).unwrap_err().to_string();
-        assert_eq!(error, r"unknown command 'bad\u{1b}[2J'");
-
-        let option = "--bad\u{1b}[31m".to_owned();
-        let error = execute(&[option]).unwrap_err().to_string();
-        assert!(error.contains(r"--bad\u{1b}[31m"));
-
-        let path = "missing\u{1b}]0;pwned\u{7}".to_owned();
-        let error = execute(&["sequence".to_owned(), path]).unwrap_err().to_string();
-        assert!(error.contains(r"missing\u{1b}]0;pwned\u{7}"));
-        assert!(!error.contains('\u{1b}'));
-        assert!(!error.contains('\u{7}'));
+        assert_eq!(
+            execute(&["bad\u{1b}[2J".to_owned()]).unwrap_err().to_string(),
+            "unknown command"
+        );
+        assert_eq!(
+            execute(&["--bad\u{1b}[31m".to_owned()]).unwrap_err().to_string(),
+            "unknown option"
+        );
     }
 
     #[test]
     fn reports_error_cases() {
         let cases = [
             (vec![], "missing command"),
-            (vec!["--bogus"], "unknown option '--bogus'"),
-            (vec!["bogus"], "unknown command 'bogus'"),
+            (vec!["--bogus"], "unknown option"),
+            (vec!["bogus"], "unknown command"),
             (vec!["sequence"], "missing input file"),
-            (vec!["sequence", "a", "b"], "only one input file may be specified"),
+            (vec!["sequence", "a", "b"], "too many input files"),
         ];
 
         for (args, expected) in cases {
@@ -283,6 +232,6 @@ mod tests {
         }
 
         let error = execute(&["sequence".to_owned(), "missing-file".to_owned()]).unwrap_err();
-        assert!(error.to_string().starts_with("failed to read 'missing-file':"));
+        assert_eq!(error.to_string(), "failed to read input file");
     }
 }

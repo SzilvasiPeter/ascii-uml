@@ -17,22 +17,19 @@ enum ParseError {
 }
 
 impl fmt::Display for ParseError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (ln, message) = match self {
-            Self::Document(message) => return formatter.write_str(message),
-            Self::EmptyInput => (None, "no messages found in input"),
-            Self::MissingColon { ln } => (Some(*ln), "expected ':' before the message"),
-            Self::MissingArrow { ln } => (Some(*ln), "expected one of: --> <-- ..> <.. --- ..."),
-            Self::MultipleArrows { ln } => (Some(*ln), "expected exactly one arrow"),
-            Self::EmptySide { ln } => (Some(*ln), "arrow cannot have empty sides"),
-            Self::EmptyMessage { ln } => (Some(*ln), "message must not be empty"),
-            Self::SelfMessage { ln } => (Some(*ln), "a sender cannot message itself"),
-            Self::ControlCharacter { ln } => (Some(*ln), "control characters are not allowed"),
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (ln, msg) = match self {
+            Self::Document(m) => return f.write_str(m),
+            Self::EmptyInput => return f.write_str("no messages found in input"),
+            Self::MissingColon { ln } => (*ln, "expected ':' before the message"),
+            Self::MissingArrow { ln } => (*ln, "expected one of: --> <-- ..> <.. --- ..."),
+            Self::MultipleArrows { ln } => (*ln, "expected exactly one arrow"),
+            Self::EmptySide { ln } => (*ln, "arrow cannot have empty sides"),
+            Self::EmptyMessage { ln } => (*ln, "message must not be empty"),
+            Self::SelfMessage { ln } => (*ln, "a sender cannot message itself"),
+            Self::ControlCharacter { ln } => (*ln, "control characters are not allowed"),
         };
-        match ln {
-            Some(ln) => write!(formatter, "line {ln}: {message}"),
-            None => formatter.write_str(message),
-        }
+        write!(f, "line {ln}: {msg}")
     }
 }
 

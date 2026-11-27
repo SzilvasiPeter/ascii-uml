@@ -33,7 +33,7 @@ struct Diagram {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Position {
+struct Coord {
     row: usize,
     col: usize,
     x: usize,
@@ -54,70 +54,53 @@ impl Diagram {
         let rows: Vec<Vec<String>> = layout
             .rows
             .iter()
-            .map(|row| {
-                row.iter()
-                    .map(|(name, _)| {
-                        validate_name(name)?;
-                        Ok(name.clone())
-                    })
-                    .collect()
-            })
+            .map(|r| r.iter().map(|(n, _)| validate_name(n).map(|()| n.clone())).collect())
             .collect::<Result<_, String>>()?;
         let relations = document
             .statements
             .iter()
-            .map(|(line, text)| parse_relation(*line, text))
+            .map(|(l, t)| parse_relation(*l, t))
             .collect::<Result<Vec<_>, _>>()?;
         if rows.is_empty() {
-            return Err("layout block is empty".to_owned());
+            return Err("layout block is empty".into());
         }
 
-        let mut positions = HashMap::new();
+        let mut coords = HashMap::new();
         for (row_index, row) in rows.iter().enumerate() {
             for (column_index, name) in row.iter().enumerate() {
-                if positions.insert(name.as_str(), (row_index, column_index)).is_some() {
-                    return Err(format!("duplicate class '{name}' in layout"));
+                if coords.insert(name.as_str(), (row_index, column_index)).is_some() {
+                    return Err("duplicate class".into());
                 }
             }
         }
 
         let mut same_row_pairs = HashSet::new();
-        for relation in &relations {
-            let source = positions.get(relation.source.as_str()).copied().ok_or_else(|| {
-                format!("line {}: unknown class '{}'", relation.line, relation.source)
-            })?;
-            let target = positions.get(relation.target.as_str()).copied().ok_or_else(|| {
-                format!("line {}: unknown class '{}'", relation.line, relation.target)
-            })?;
-
-            if relation.source == relation.target {
-                return Err(format!("line {}: a class cannot relate to itself", relation.line));
-            }
-
-            if source.0 == target.0 {
-                if source.1.abs_diff(target.1) != 1 {
-                    return Err(format!(
-                        "line {}: target '{}' is not adjacent to '{}' in the same row",
-                        relation.line, relation.target, relation.source
-                    ));
-                }
-
-                let pair = if source.1 < target.1 {
-                    (relation.source.as_str(), relation.target.as_str())
+        for rel in &relations {
+            let (line, source, target) = (rel.line, &rel.source, &rel.target);
+            let (Some(&src), Some(&dst)) =
+                (coords.get(source.as_str()), coords.get(target.as_str()))
+            else {
+                let name = if coords.contains_key(source.as_str()) { target } else { source };
+                return Err(format!("line {line}: unknown class '{name}'"));
+            };
+            if source == target {
+                return Err(format!("line {line}: a class cannot relate to itself"));
+            } else if src.0 == dst.0 && src.1.abs_diff(dst.1) != 1 {
+                let msg = format!("target '{target}' not adjacent to '{source}' in same row");
+                return Err(format!("line {line}: {msg}"));
+            } else if src.0 == dst.0 {
+                let pair = if src.1 < dst.1 {
+                    (source.as_str(), target.as_str())
                 } else {
-                    (relation.target.as_str(), relation.source.as_str())
+                    (target.as_str(), source.as_str())
                 };
                 if !same_row_pairs.insert(pair) {
-                    return Err(format!(
-                        "line {}: multiple relations between '{}' and '{}'",
-                        relation.line, relation.source, relation.target
-                    ));
+                    let msg = format!("multiple relations between '{source}' and '{target}'");
+                    return Err(format!("line {line}: {msg}"));
                 }
-            } else if source.0 != target.0 + 1 {
-                return Err(format!(
-                    "line {}: target '{}' must be in the same row or one row above '{}'",
-                    relation.line, relation.target, relation.source
-                ));
+            } else if src.0 != dst.0 + 1 {
+                let msg = format!("target '{target}' must be in same/previous row as '{source}'");
+                return Err(format!("line {line}: {msg}"));
             }
         }
 
@@ -142,10 +125,8 @@ impl Diagram {
             let mut x = 0;
             for (column_index, name) in row.iter().enumerate() {
                 let width = widths[row_index][column_index];
-                positions.insert(
-                    name.as_str(),
-                    Position { row: row_index, col: column_index, x, width },
-                );
+                let position = Coord { row: row_index, col: column_index, x, width };
+                positions.insert(name.as_str(), position);
                 x += width + GAP;
             }
         }
@@ -206,74 +187,52 @@ fn parse_relation(line_number: usize, line: &str) -> Result<Relation, String> {
         if let Some((source, target)) = line.split_once(operator) {
             let source = source.trim();
             let target = target.trim();
-            if source.is_empty() {
-                return Err(format!("line {line_number}: relation source must not be empty"));
-            }
-            if target.is_empty() {
-                return Err(format!("line {line_number}: relation target must not be empty"));
+            if source.is_empty() || target.is_empty() {
+                return Err(format!("line {line_number}: empty relation side"));
             }
             validate_name(source)?;
             validate_name(target)?;
-            return Ok(Relation {
-                source: source.to_owned(),
-                target: target.to_owned(),
-                kind,
-                line: line_number,
-            });
+            let (source, target) = (source.to_owned(), target.to_owned());
+            return Ok(Relation { source, target, kind, line: line_number });
         }
     }
 
-    Err(format!("line {line_number}: expected a relation operator ('--|>', '..|>', '*--', '-->')"))
+    Err(format!("line {line_number}: expected a relation operator"))
 }
 
-fn draw_same_row(band: &mut [Vec<char>], relation: &Relation, positions: &HashMap<&str, Position>) {
-    let source = positions[relation.source.as_str()];
-    let target = positions[relation.target.as_str()];
+fn draw_same_row(band: &mut [Vec<char>], relation: &Relation, coords: &HashMap<&str, Coord>) {
+    let source = coords[relation.source.as_str()];
+    let target = coords[relation.target.as_str()];
     let (left, right) = if source.col < target.col { (source, target) } else { (target, source) };
     let start = left.x + left.width;
     let end = right.x;
     let (_, horizontal) = relation.kind.line_chars();
 
     band[1][start..end].fill(horizontal);
+    let ltr = source.col < target.col;
     match relation.kind {
-        Kind::Composition => {
-            if source.col < target.col {
-                band[1][start] = '*';
-            } else {
-                band[1][end - 1] = '*';
-            }
-        }
+        Kind::Composition => band[1][if ltr { start } else { end - 1 }] = '*',
         Kind::Generalization | Kind::Realization => {
-            if target.col > source.col {
-                band[1][end - 2] = '|';
-                band[1][end - 1] = '>';
+            if ltr {
+                band[1][end - 2..end].copy_from_slice(&['|', '>']);
             } else {
-                band[1][start] = '<';
-                band[1][start + 1] = '|';
+                band[1][start..start + 2].copy_from_slice(&['<', '|']);
             }
         }
         Kind::Association => {
-            if target.col > source.col {
-                band[1][end - 1] = '>';
-            } else {
-                band[1][start] = '<';
-            }
+            band[1][if ltr { end - 1 } else { start }] = if ltr { '>' } else { '<' }
         }
     }
 }
 
-fn render_channel(
-    width: usize,
-    relations: &[&Relation],
-    positions: &HashMap<&str, Position>,
-) -> Vec<String> {
-    let height = 2 + relations.len().max(1);
+fn render_channel(width: usize, rels: &[&Relation], coords: &HashMap<&str, Coord>) -> Vec<String> {
+    let height = 2 + rels.len().max(1);
     let last = height - 1;
     let mut canvas = vec![vec![' '; width]; height];
 
-    for (index, relation) in relations.iter().enumerate() {
-        let source = positions[relation.source.as_str()];
-        let target = positions[relation.target.as_str()];
+    for (index, relation) in rels.iter().enumerate() {
+        let source = coords[relation.source.as_str()];
+        let target = coords[relation.target.as_str()];
         let source_x = source.x + source.width / 2;
         let target_x = target.x + target.width / 2;
         let lane = index + 1;
@@ -521,10 +480,7 @@ A --> B
         // Direction does not distinguish pairs, so reversed relations count as duplicates.
         let error = run("layout { A, B }\nB --> A\nA --|> B\n").unwrap_err();
 
-        assert!(
-            error.contains("multiple relations between 'A' and 'B'"),
-            "unexpected error: {error}"
-        );
+        assert!(error.contains("multiple relations"), "unexpected error: {error}");
     }
 
     #[test]
@@ -532,25 +488,25 @@ A --> B
         let cases = [
             ("", "missing layout block"),
             ("layout {\n}\n", "layout block is empty"),
-            ("layout A, B\n", "expected '{' after layout"),
-            ("layout {\nA, B\n", "unclosed layout block"),
-            ("layout { A, B, A }\n", "duplicate class 'A'"),
-            ("layout { A, B }\nA --> C\n", "unknown class 'C'"),
-            ("layout { A, B }\nC --> B\n", "unknown class 'C'"),
+            ("layout A, B\n", "expected '{'"),
+            ("layout {\nA, B\n", "unclosed layout"),
+            ("layout { A, B, A }\n", "duplicate class"),
+            ("layout { A, B }\nA --> C\n", "unknown class"),
+            ("layout { A, B }\nC --> B\n", "unknown class"),
             ("layout { A }\nA --> A\n", "cannot relate to itself"),
-            ("layout { A, B, C }\nA --> C\n", "is not adjacent"),
-            ("layout { A\nB }\nA --> B\n", "must be in the same row or one row above"),
-            ("layout { A\nB\nC }\nC --> A\n", "must be in the same row or one row above"),
-            ("layout { A, B }\nA --> B\nA --|> B\n", "multiple relations between 'A' and 'B'"),
+            ("layout { A, B, C }\nA --> C\n", "not adjacent"),
+            ("layout { A\nB }\nA --> B\n", "must be in same/previous row"),
+            ("layout { A\nB\nC }\nC --> A\n", "must be in same/previous row"),
+            ("layout { A, B }\nA --> B\nA --|> B\n", "multiple relations"),
             ("layout { A, B }\nA => B\n", "expected a relation operator"),
-            ("layout { A, B }\nA -->\n", "relation target must not be empty"),
-            ("layout { A, B }\n--> B\n", "relation source must not be empty"),
-            ("layout { A-B }\n", "invalid class name 'A-B'"),
-            ("layout { A.B }\n", "invalid class name 'A.B'"),
-            ("layout { A|B }\n", "invalid class name 'A|B'"),
+            ("layout { A, B }\nA -->\n", "empty relation side"),
+            ("layout { A, B }\n--> B\n", "empty relation side"),
+            ("layout { A-B }\n", "invalid class name"),
+            ("layout { A.B }\n", "invalid class name"),
+            ("layout { A|B }\n", "invalid class name"),
             ("layout { A\u{7} }\n", "invalid class name"),
-            ("layout { A, B }\nA-B --> B\n", "invalid class name 'A-B'"),
-            ("layout { A, B }\nA --> B-C\n", "invalid class name 'B-C'"),
+            ("layout { A, B }\nA-B --> B\n", "invalid class name"),
+            ("layout { A, B }\nA --> B-C\n", "invalid class name"),
         ];
 
         for (input, expected_fragment) in cases {

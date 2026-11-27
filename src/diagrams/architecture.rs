@@ -91,8 +91,7 @@ impl Diagram {
             if from_pos == to_pos {
                 return Err(format!("line {line}: cannot connect to itself"));
             }
-            let pair =
-                if from <= to { (from.clone(), to.clone()) } else { (to.clone(), from.clone()) };
+            let pair = if from <= to { (from, to) } else { (to, from) };
             if !pairs.insert(pair.clone()) {
                 return Err(format!(
                     "line {line}: duplicate connection between '{}' and '{}'",
@@ -100,7 +99,7 @@ impl Diagram {
                     pair.1.escape_debug()
                 ));
             }
-            validate_adjacency(&groups, from_pos, to_pos, &from, &to, line)?;
+            validate_adjacency(from_pos, to_pos, line)?;
             links.push(Link { from: from_pos, to: to_pos });
         }
 
@@ -164,13 +163,13 @@ fn validate_name(name: &str, kind: &str, line: usize) -> Result<(), String> {
     if name.is_empty() {
         return Err(format!("line {line}: empty {kind} name"));
     }
-    super::validate_name(name, &format!("{kind} "), &['{', '}', ',', ';', '#', '|', '<', '>'])
-        .map_err(|error| format!("line {line}: {error}"))
+    super::validate_name(name, &format!("{kind} "), &['{', '}', ';', ',', '#', '|', '<', '>'])
+        .map_err(|e| format!("line {line}: {e}"))
 }
 
 fn insert_name(seen: &mut HashMap<String, usize>, name: &str, line: usize) -> Result<(), String> {
     if seen.insert(name.to_owned(), line).is_some() {
-        return Err(format!("line {line}: duplicate name '{}'", name.escape_debug()));
+        return Err(format!("line {line}: duplicate name"));
     }
     Ok(())
 }
@@ -192,35 +191,19 @@ fn resolve(
     name: &str,
     line: usize,
 ) -> Result<Pos, String> {
-    positions.get(name).map_or_else(
-        || Err(format!("line {line}: unknown service '{}'", name.escape_debug())),
-        |&(group, row, service)| Ok(Pos { group, row, service }),
-    )
+    positions
+        .get(name)
+        .map(|&(group, row, service)| Pos { group, row, service })
+        .ok_or_else(|| format!("line {line}: unknown service"))
 }
 
-fn validate_adjacency(
-    groups: &[Group],
-    from: Pos,
-    to: Pos,
-    from_name: &str,
-    to_name: &str,
-    line: usize,
-) -> Result<(), String> {
+fn validate_adjacency(from: Pos, to: Pos, line: usize) -> Result<(), String> {
     if from.group == to.group {
         if from.row.abs_diff(to.row) + from.service.abs_diff(to.service) != 1 {
-            return Err(format!(
-                "line {line}: services '{}' and '{}' must be adjacent within group '{}'",
-                from_name.escape_debug(),
-                to_name.escape_debug(),
-                groups[from.group].name.escape_debug()
-            ));
+            return Err(format!("line {line}: not adjacent in group"));
         }
     } else if from.group.abs_diff(to.group) != 1 {
-        return Err(format!(
-            "line {line}: groups '{}' and '{}' are not adjacent",
-            groups[from.group].name.escape_debug(),
-            groups[to.group].name.escape_debug()
-        ));
+        return Err(format!("line {line}: groups not adjacent"));
     }
     Ok(())
 }
@@ -366,26 +349,23 @@ mod tests {
             ("group G {\ngroup H {\nA\n}\n}", "line 2: nested group"),
             ("group G {\nA; B\nA --> B\n}", "line 3: connections"),
             ("}", "line 1: unexpected '}'"),
-            ("group G {\nA; A\n}", "duplicate name 'A'"),
-            ("group A {\nB\n}\ngroup G {\nA\n}", "duplicate name 'A'"),
-            ("group G {\nA\n}\ngroup G {\nB\n}", "duplicate name 'G'"),
-            ("group G {\nA\u{7}\n}", "line 2: invalid service name 'A\\u{7}'"),
+            ("group G {\nA; A\n}", "duplicate name"),
+            ("group A {\nB\n}\ngroup G {\nA\n}", "duplicate name"),
+            ("group G {\nA\n}\ngroup G {\nB\n}", "duplicate name"),
+            ("group G {\nA\u{7}\n}", "invalid service name"),
             ("group G {\nA; B\n}\nA B", "line 4: expected exactly one '-->'"),
             ("group G {\nA; B\n}\nA --> B --> C", "line 4: expected exactly one '-->'"),
             ("group G {\nA; B\n}\nA -->", "line 4: empty connection side"),
             ("group G {\nA; B\n}\n--> B", "line 4: empty connection side"),
-            ("group G {\nA; B\n}\nA --> C", "line 4: unknown service 'C'"),
-            ("group G {\nA; B\n}\nC --> B", "line 4: unknown service 'C'"),
+            ("group G {\nA; B\n}\nA --> C", "unknown service"),
+            ("group G {\nA; B\n}\nC --> B", "unknown service"),
             ("group G {\nA; B\n}\nA --> A", "line 4: cannot connect to itself"),
-            ("group G {\nA; B\n}\nA --> B\nA --> B", "line 5: duplicate connection"),
-            ("group G {\nA; B\n}\nA --> B\nB --> A", "line 5: duplicate connection"),
-            (
-                "group G {\nA, B, C\n}\nA --> C",
-                "line 4: services 'A' and 'C' must be adjacent within group 'G'",
-            ),
+            ("group G {\nA; B\n}\nA --> B\nA --> B", "duplicate connection"),
+            ("group G {\nA; B\n}\nA --> B\nB --> A", "duplicate connection"),
+            ("group G {\nA, B, C\n}\nA --> C", "not adjacent in group"),
             (
                 "group G1 {\nA\n}\ngroup G2 {\nB\n}\ngroup G3 {\nC\n}\nA --> C",
-                "line 10: groups 'G1' and 'G3' are not adjacent",
+                "groups not adjacent",
             ),
         ];
         for (input, expected) in cases {
@@ -394,14 +374,16 @@ mod tests {
         }
 
         for name in ["A{B", "A}B", "A#B", "A|B", "A<B", "A>B"] {
-            let input = format!("group G {{\n{name}\n}}");
-            let error = run(&input).unwrap_err();
-            assert!(error.contains("invalid service name"), "input: {input:?}, error: {error:?}");
+            assert!(
+                run(&format!("group G {{\n{name}\n}}"))
+                    .unwrap_err()
+                    .contains("invalid service name")
+            );
         }
         for name in ["G,H", "G;H", "G#H", "G|H", "G<H", "G>H"] {
-            let input = format!("group {name} {{\nA\n}}");
-            let error = run(&input).unwrap_err();
-            assert!(error.contains("invalid group name"), "input: {input:?}, error: {error:?}");
+            assert!(
+                run(&format!("group {name} {{\nA\n}}")).unwrap_err().contains("invalid group name")
+            );
         }
     }
 

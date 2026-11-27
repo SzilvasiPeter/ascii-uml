@@ -67,7 +67,7 @@ pub fn parse_document(input: &str, expected: &str) -> Result<Document, String> {
                 .strip_prefix(expected)
                 .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
             {
-                return Err(format!("line {line}: expected '{{' after {expected}"));
+                return Err(format!("line {line}: expected '{{'"));
             }
             document.statements.push((line, text.to_owned()));
             continue;
@@ -82,7 +82,7 @@ pub fn parse_document(input: &str, expected: &str) -> Result<Document, String> {
         }
     }
     if let Some(block) = current {
-        return Err(format!("line {}: unclosed {expected} block", block.line));
+        return Err(format!("line {}: unclosed {expected}", block.line));
     }
     Ok(document)
 }

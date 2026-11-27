@@ -34,8 +34,8 @@ pub(super) fn put(canvas: &mut [Vec<char>], x: usize, y: usize, glyph: char) {
 }
 
 pub(super) fn draw_text(canvas: &mut [Vec<char>], row: usize, col: usize, text: &str) {
-    for (offset, character) in text.chars().enumerate() {
-        canvas[row][col + offset] = character;
+    for (i, c) in text.chars().enumerate() {
+        canvas[row][col + i] = c;
     }
 }
 
@@ -58,26 +58,14 @@ pub(super) fn draw_frame(
     draw_text(canvas, top, left + 1, &format!(" {title} "));
 }
 
-pub(super) fn draw_hline(
-    canvas: &mut [Vec<char>],
-    row: usize,
-    start: usize,
-    end: usize,
-    glyph: char,
-) {
-    for col in start.min(end)..=start.max(end) {
+pub(super) fn draw_hline(canvas: &mut [Vec<char>], row: usize, a: usize, b: usize, glyph: char) {
+    for col in a.min(b)..=a.max(b) {
         put(canvas, col, row, glyph);
     }
 }
 
-pub(super) fn draw_vline(
-    canvas: &mut [Vec<char>],
-    col: usize,
-    start: usize,
-    end: usize,
-    glyph: char,
-) {
-    for row in start.min(end)..=start.max(end) {
+pub(super) fn draw_vline(canvas: &mut [Vec<char>], col: usize, a: usize, b: usize, glyph: char) {
+    for row in a.min(b)..=a.max(b) {
         put(canvas, col, row, glyph);
     }
 }
@@ -93,9 +81,7 @@ pub(super) fn render_canvas(canvas: &[Vec<char>]) -> String {
 
 pub(super) fn frame(title: &str, content: &str) -> String {
     let lines: Vec<_> = content.lines().collect();
-    let width =
-        lines.iter().map(|line| line.chars().count()).max().unwrap_or(0).max(title.chars().count())
-            + 4;
+    let width = lines.iter().chain([&title]).map(|s| s.chars().count()).max().unwrap_or(0) + 4;
     let mut canvas = canvas(width, lines.len() + 2);
     draw_frame(&mut canvas, (0, 0, width - 1, lines.len() + 1), title);
     for (row, line) in lines.iter().enumerate() {
@@ -149,17 +135,15 @@ impl Block {
     #[must_use]
     pub fn horizontal(blocks: impl IntoIterator<Item = Self>, gap: usize) -> Self {
         let blocks: Vec<_> = blocks.into_iter().collect();
-        let height = blocks.iter().map(|block| block.lines.len()).max().unwrap_or(0);
+        let height = blocks.iter().map(|b| b.lines.len()).max().unwrap_or(0);
         let spacer = " ".repeat(gap);
         let mut lines = vec![String::new(); height];
-        for (index, block) in blocks.into_iter().enumerate() {
-            if index > 0 {
-                for row in &mut lines {
-                    row.push_str(&spacer);
-                }
-            }
+        for (i, block) in blocks.into_iter().enumerate() {
             let width = block.width();
             for (row, line) in lines.iter_mut().enumerate() {
+                if i > 0 {
+                    line.push_str(&spacer);
+                }
                 match block.lines.get(row) {
                     Some(text) => line.push_str(text),
                     None => line.push_str(&" ".repeat(width)),

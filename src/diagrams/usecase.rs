@@ -223,35 +223,27 @@ fn collect_relations(
             | (RelationKind::Association, Endpoint::UseCase(use_case), Endpoint::Actor(actor)) => {
                 let actor = actors[actor].name.clone();
                 if !pairs.insert((actor.clone(), use_case)) {
-                    return Err(format!(
-                        "line {line}: duplicate relation between '{}' and '{}'",
-                        relation.source, relation.target
-                    ));
+                    return Err(format!("line {line}: duplicate relation"));
                 }
                 associations.push(Association { actor, use_case });
             }
             (RelationKind::Association, Endpoint::Actor(_), Endpoint::Actor(_)) => {
-                return Err(format!("line {line}: association cannot connect two actors"));
+                return Err(format!("line {line}: two actors"));
             }
             (RelationKind::Association, Endpoint::UseCase(_), Endpoint::UseCase(_)) => {
-                return Err(format!("line {line}: association cannot connect two use cases"));
+                return Err(format!("line {line}: two use cases"));
             }
             (_, Endpoint::Actor(_), _) | (_, _, Endpoint::Actor(_)) => {
-                return Err(format!("line {line}: dependency cannot involve an actor"));
+                return Err(format!("line {line}: involve an actor"));
             }
             (_, Endpoint::UseCase(source), Endpoint::UseCase(target)) => {
                 if !dependency_pairs.insert((source, target)) {
-                    return Err(format!(
-                        "line {line}: duplicate dependency between '{}' and '{}'",
-                        relation.source, relation.target
-                    ));
+                    return Err(format!("line {line}: duplicate dependency"));
                 }
                 let source_row = 2 + 4 * source;
                 let label_row = if target > source { source_row + 2 } else { source_row - 2 };
                 if !label_rows.insert(label_row) {
-                    return Err(format!(
-                        "line {line}: dependency label row overlaps another dependency"
-                    ));
+                    return Err(format!("line {line}: label row overlaps"));
                 }
                 let kind = if relation.kind == RelationKind::Include {
                     DependencyKind::Include
@@ -572,9 +564,9 @@ The User --> Use-Case One
         let cases = [
             ("", "missing system block"),
             ("actor A\n", "missing system block"),
-            ("system S {\nA\n", "unclosed system block"),
+            ("system S {\nA\n", "unclosed system"),
             ("system S\nA\n", "expected '{'"),
-            ("system S { A\n", "unclosed system block"),
+            ("system S { A\n", "unclosed system"),
             ("system S {\n}\n", "has no use cases"),
             ("system S {\nA\n}\nsystem T {\nB\n}\n", "duplicate system block"),
             ("system S {\nA\n}\nactor\n", "actor name must not be empty"),
