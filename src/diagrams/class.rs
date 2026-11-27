@@ -3,6 +3,10 @@ use std::collections::{HashMap, HashSet};
 use super::block::{Block, render_canvas};
 use super::{parse_document, single_block};
 
+pub fn run(input: &str) -> Result<String, String> {
+    Diagram::parse(input).map(|diagram| diagram.render())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Generalization,
@@ -38,10 +42,6 @@ struct Coord {
     col: usize,
     x: usize,
     width: usize,
-}
-
-pub fn run(input: &str) -> Result<String, String> {
-    Diagram::parse(input).map(|diagram| diagram.render())
 }
 
 impl Diagram {
@@ -269,7 +269,7 @@ mod tests {
     use super::run;
 
     fn render(input: &str) -> String {
-        run(input).unwrap_or_else(|error| panic!("expected success, got error: {error}"))
+        run(input).unwrap()
     }
 
     #[test]
@@ -489,6 +489,7 @@ A --> B
             ("", "missing layout block"),
             ("layout {\n}\n", "layout block is empty"),
             ("layout A, B\n", "expected '{'"),
+            ("layout A-B { A }\n", "invalid class name"),
             ("layout {\nA, B\n", "unclosed layout"),
             ("layout { A, B, A }\n", "duplicate class"),
             ("layout { A, B }\nA --> C\n", "unknown class"),

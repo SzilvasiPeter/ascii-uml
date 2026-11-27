@@ -20,8 +20,7 @@ pub(super) fn put(canvas: &mut [Vec<char>], x: usize, y: usize, glyph: char) {
     let vertical = |character| matches!(character, '|' | ':');
     canvas[y][x] = if current == ' ' {
         glyph
-    } else if current == '+'
-        || glyph == '+'
+    } else if (current == '+' || glyph == '+')
         || (horizontal(current) && vertical(glyph))
         || (vertical(current) && horizontal(glyph))
     {
@@ -92,28 +91,30 @@ pub(super) fn frame(title: &str, content: &str) -> String {
 
 /// A rectangle with equal-width rows for reliable composition.
 #[derive(Debug)]
-pub struct Block {
+pub(super) struct Block {
     lines: Vec<String>,
 }
 
 impl Block {
     /// Pads rows to the widest row so the block stays rectangular.
-    fn new(rows: Vec<String>) -> Self {
-        let width = rows.iter().map(|row| row.chars().count()).max().unwrap_or(0);
-        let lines = rows.into_iter().map(|row| padded(row, width)).collect();
+    fn new(mut lines: Vec<String>) -> Self {
+        let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+        for line in &mut lines {
+            line.push_str(&" ".repeat(width - line.chars().count()));
+        }
         Self { lines }
     }
 
     /// Keeps one row unchanged because spaces carry layout.
     /// Callers must reject control characters because they break rendering.
     #[must_use]
-    pub fn text(source: impl Into<String>) -> Self {
+    pub(super) fn text(source: impl Into<String>) -> Self {
         Self { lines: vec![source.into()] }
     }
 
     /// Wraps a label in the standard three-row class and participant box.
     #[must_use]
-    pub fn boxed(label: impl Into<String>) -> Self {
+    pub(super) fn boxed(label: impl Into<String>) -> Self {
         let label = label.into();
         let width = (label.chars().count() + 4) | 1;
         let border = format!("+{}+", "-".repeat(width - 2));
@@ -133,7 +134,7 @@ impl Block {
     /// Places blocks side by side with `gap` spaces.
     /// Shorter blocks are padded underneath to keep rows aligned.
     #[must_use]
-    pub fn horizontal(blocks: impl IntoIterator<Item = Self>, gap: usize) -> Self {
+    pub(super) fn horizontal(blocks: impl IntoIterator<Item = Self>, gap: usize) -> Self {
         let blocks: Vec<_> = blocks.into_iter().collect();
         let height = blocks.iter().map(|b| b.lines.len()).max().unwrap_or(0);
         let spacer = " ".repeat(gap);
@@ -156,10 +157,10 @@ impl Block {
     /// Stacks blocks with `gap` blank rows between them.
     /// Rows share a left edge and width for consistent alignment.
     #[must_use]
-    pub fn vertical(blocks: impl IntoIterator<Item = Self>, gap: usize) -> Self {
+    pub(super) fn vertical(blocks: impl IntoIterator<Item = Self>, gap: usize) -> Self {
         let mut rows = Vec::new();
-        for (index, block) in blocks.into_iter().enumerate() {
-            if index > 0 {
+        for (i, block) in blocks.into_iter().enumerate() {
+            if i > 0 {
                 rows.extend(std::iter::repeat_n(String::new(), gap));
             }
             rows.extend(block.lines);
@@ -169,25 +170,20 @@ impl Block {
 
     /// Creates `width` by `height` blank space for diagram gaps.
     #[must_use]
-    pub fn spacer(width: usize, height: usize) -> Self {
+    pub(super) fn spacer(width: usize, height: usize) -> Self {
         let line = " ".repeat(width);
         Self { lines: vec![line; height] }
     }
 
     /// Joins rows without a final newline so callers control line endings.
     #[must_use]
-    pub fn render(&self) -> String {
+    pub(super) fn render(&self) -> String {
         self.lines.join("\n")
     }
 
     pub(super) fn width(&self) -> usize {
         self.lines.first().map_or(0, |line| line.chars().count())
     }
-}
-
-fn padded(mut row: String, width: usize) -> String {
-    row.push_str(&" ".repeat(width.saturating_sub(row.chars().count())));
-    row
 }
 
 #[cfg(test)]

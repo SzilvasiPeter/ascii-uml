@@ -1,39 +1,9 @@
-use std::fmt;
-
 use super::block::{BLOCK_HEIGHT, Block};
 use super::parse_document;
 
-#[derive(Debug)]
-enum ParseError {
-    EmptyInput,
-    MissingColon { ln: usize },
-    MissingArrow { ln: usize },
-    MultipleArrows { ln: usize },
-    EmptySide { ln: usize },
-    EmptyMessage { ln: usize },
-    SelfMessage { ln: usize },
-    ControlCharacter { ln: usize },
-    Document(String),
+pub fn run(input: &str) -> Result<String, String> {
+    Diagram::parse(input).map(|diagram| diagram.render())
 }
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (ln, msg) = match self {
-            Self::Document(m) => return f.write_str(m),
-            Self::EmptyInput => return f.write_str("no messages found in input"),
-            Self::MissingColon { ln } => (*ln, "expected ':' before the message"),
-            Self::MissingArrow { ln } => (*ln, "expected one of: --> <-- ..> <.. --- ..."),
-            Self::MultipleArrows { ln } => (*ln, "expected exactly one arrow"),
-            Self::EmptySide { ln } => (*ln, "arrow cannot have empty sides"),
-            Self::EmptyMessage { ln } => (*ln, "message must not be empty"),
-            Self::SelfMessage { ln } => (*ln, "a sender cannot message itself"),
-            Self::ControlCharacter { ln } => (*ln, "control characters are not allowed"),
-        };
-        write!(f, "line {ln}: {msg}")
-    }
-}
-
-impl std::error::Error for ParseError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Line {
@@ -84,38 +54,39 @@ struct Event {
 }
 
 #[derive(Debug)]
-struct Sequence {
+struct Diagram {
     actors: Vec<String>,
     events: Vec<Event>,
 }
 
-impl Sequence {
-    fn parse(input: &str) -> Result<Self, ParseError> {
-        let document = parse_document(input, "").map_err(ParseError::Document)?;
+impl Diagram {
+    fn parse(input: &str) -> Result<Self, String> {
+        let document = parse_document(input, "")?;
         if !document.blocks.is_empty() {
-            return Err(ParseError::EmptyInput);
+            return Err("no messages found in input".to_owned());
         }
         let mut participants = Vec::new();
         let mut events = Vec::new();
         for (ln, statement) in document.statements {
             let line = statement.as_str();
-            let (connection, message) =
-                line.split_once(':').ok_or(ParseError::MissingColon { ln })?;
+            let (connection, message) = line
+                .split_once(':')
+                .ok_or_else(|| format!("line {ln}: expected ':' before the message"))?;
             let message = message.trim();
             let mut splits = Arrow::splits(connection);
             let Some((left, (arrow, points_left), right)) = splits.next() else {
-                return Err(ParseError::MissingArrow { ln });
+                return Err(format!("line {ln}: expected one of: --> <-- ..> <.. --- ..."));
             };
             if splits.next().is_some() {
-                return Err(ParseError::MultipleArrows { ln });
+                return Err(format!("line {ln}: expected exactly one arrow"));
             } else if left.is_empty() || right.is_empty() {
-                return Err(ParseError::EmptySide { ln });
+                return Err(format!("line {ln}: arrow cannot have empty sides"));
             } else if left == right {
-                return Err(ParseError::SelfMessage { ln });
+                return Err(format!("line {ln}: a sender cannot message itself"));
             } else if message.is_empty() {
-                return Err(ParseError::EmptyMessage { ln });
+                return Err(format!("line {ln}: message must not be empty"));
             } else if [left, right, message].iter().any(|str| str.chars().any(char::is_control)) {
-                return Err(ParseError::ControlCharacter { ln });
+                return Err(format!("line {ln}: control characters are not allowed"));
             }
 
             let [left, right] = [left, right].map(|name| {
@@ -128,7 +99,9 @@ impl Sequence {
             events.push(Event { from, to, arrow, message: message.to_owned() });
         }
 
-        events.first().ok_or(ParseError::EmptyInput)?;
+        if events.is_empty() {
+            return Err("no messages found in input".to_owned());
+        }
         Ok(Self { actors: participants, events })
     }
 
@@ -181,10 +154,6 @@ impl Sequence {
     }
 }
 
-pub fn run(input: &str) -> Result<String, String> {
-    Sequence::parse(input).map(|diagram| diagram.render()).map_err(|error| error.to_string())
-}
-
 // +---+ +---+
 // | a | | b |
 // +---+ +---+
@@ -226,7 +195,7 @@ mod tests {
                       b <.. c: dotted left
                       a --- b: solid
                       b ... c: dotted";
-        let diagram = Sequence::parse(input).unwrap();
+        let diagram = Diagram::parse(input).unwrap();
         let messages: Vec<_> = diagram
             .events
             .iter()
@@ -248,13 +217,13 @@ mod tests {
 
     #[test]
     fn ignores_empty_line_and_comments() {
-        let diagram = Sequence::parse("# comment\n\nA-->B:hi\n").unwrap();
+        let diagram = Diagram::parse("# comment\n\nA-->B:hi\n").unwrap();
         assert_eq!(diagram.events.len(), 1);
     }
 
     #[test]
     fn renders_boxes() {
-        let output = Sequence::parse("A --> B: hi\n").unwrap().render();
+        let output = Diagram::parse("A --> B: hi\n").unwrap().render();
         let lines: Vec<&str> = output.lines().collect();
         assert!(lines[0].starts_with("+---+"));
         assert!(lines[1].contains("| A |"));
@@ -273,7 +242,7 @@ mod tests {
             ("A ... B: x\n", "|.....|"),
         ];
         for (input, expected) in cases {
-            let output = Sequence::parse(input).unwrap().render();
+            let output = Diagram::parse(input).unwrap().render();
             assert!(output.lines().nth(5).unwrap().contains(expected), "{input}");
         }
     }
@@ -302,12 +271,12 @@ mod tests {
             "     |.......................|      \n",
             "     |                       |      ",
         );
-        assert_eq!(Sequence::parse(input).unwrap().render(), expected);
+        assert_eq!(Diagram::parse(input).unwrap().render(), expected);
     }
 
     #[test]
     fn widens_only_columns_that_need_more_room() {
-        let output = Sequence::parse("aa --> bb: a\nc1 --> c2: aaaaaaa\n").unwrap().render();
+        let output = Diagram::parse("aa --> bb: a\nc1 --> c2: aaaaaaa\n").unwrap().render();
         let top = output.lines().next().unwrap();
         assert!(top.starts_with("+-----+ +-----+"));
         assert!(top.trim_end().ends_with("+-----+   +-----+"));
@@ -315,7 +284,7 @@ mod tests {
 
     #[test]
     fn allows_printable_unicode() {
-        let diagram = Sequence::parse("café --> 世界: 🙂\n").unwrap();
+        let diagram = Diagram::parse("café --> 世界: 🙂\n").unwrap();
         assert_eq!(diagram.actors, ["café", "世界"]);
         let message = &diagram.events[0];
         assert_eq!((message.from, message.to), (0, 1));
@@ -326,6 +295,7 @@ mod tests {
     #[test]
     fn reports_all_parse_errors() {
         let cases = [
+            ("}\n", "line 1: unexpected '}'"),
             ("a --> b\n", "line 1: expected ':' before the message"),
             ("a --> b: \n", "line 1: message must not be empty"),
             ("a b: hi\n", "line 1: expected one of: --> <-- ..> <.. --- ..."),
@@ -333,6 +303,7 @@ mod tests {
             ("a --> : hi\n", "line 1: arrow cannot have empty sides"),
             ("a --> a: hi\n", "line 1: a sender cannot message itself"),
             ("\n \n", "no messages found in input"),
+            ("{ A }\n", "no messages found in input"),
             ("a --><-- b: hi\n", "line 1: expected exactly one arrow"),
             ("a <--> b: hi\n", "line 1: expected exactly one arrow"),
             ("a --> b --> c: hi\n", "line 1: expected exactly one arrow"),
@@ -345,7 +316,7 @@ mod tests {
             ("a --> b: line\u{0}break\n", "line 1: control characters are not allowed"),
         ];
         for (input, expected) in cases {
-            assert_eq!(Sequence::parse(input).unwrap_err().to_string(), expected);
+            assert_eq!(Diagram::parse(input).unwrap_err(), expected);
         }
     }
 }

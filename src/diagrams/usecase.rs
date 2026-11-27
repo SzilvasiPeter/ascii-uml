@@ -3,6 +3,10 @@ use std::collections::HashSet;
 use super::block::{canvas, draw_frame, draw_hline, draw_text, draw_vline, put, render_canvas};
 use super::{parse_document, single_block};
 
+pub fn run(input: &str) -> Result<String, String> {
+    Diagram::parse(input).map(|diagram| diagram.render())
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Side {
     Left,
@@ -361,8 +365,7 @@ impl Diagram {
 
     fn draw_associations(&self, layout: &Layout, canvas: &mut [Vec<char>]) {
         for (actor, index) in self.actors.iter().zip(self.actor_indices()) {
-            let mut linked =
-                self.associations.iter().filter(|association| association.actor == actor.name);
+            let mut linked = self.associations.iter().filter(|a| a.actor == actor.name);
             let Some(first) = linked.next() else { continue };
             let figure_left = (actor.width() - 3) / 2;
             let arms_row = 1 + 5 * index + 1;
@@ -420,35 +423,23 @@ impl Diagram {
     }
 
     fn actor_indices(&self) -> Vec<usize> {
-        let (mut left, mut right) = (0, 0);
         self.actors
             .iter()
-            .map(|actor| match actor.side {
-                Side::Left => {
-                    let index = left;
-                    left += 1;
-                    index
-                }
-                Side::Right => {
-                    let index = right;
-                    right += 1;
-                    index
-                }
+            .scan((0, 0), |(left, right), actor| {
+                let counter = if matches!(actor.side, Side::Left) { left } else { right };
+                *counter += 1;
+                Some(*counter - 1)
             })
             .collect()
     }
 }
 
-pub fn run(input: &str) -> Result<String, String> {
-    Diagram::parse(input).map(|diagram| diagram.render())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{run, validate_name};
+    use super::{parse_relation, run, validate_name};
 
     fn render(input: &str) -> String {
-        run(input).unwrap_or_else(|error| panic!("expected success, got error: {error}"))
+        run(input).unwrap()
     }
 
     #[test]
@@ -560,6 +551,12 @@ The User --> Use-Case One
     }
 
     #[test]
+    fn parse_relation_requires_an_operator() {
+        let error = parse_relation(4, "X - Y").err().unwrap();
+        assert_eq!(error, "line 4: expected an association ('-->')");
+    }
+
+    #[test]
     fn rejects_parser_and_validation_errors() {
         let cases = [
             ("", "missing system block"),
@@ -571,6 +568,7 @@ The User --> Use-Case One
             ("system S {\nA\n}\nsystem T {\nB\n}\n", "duplicate system block"),
             ("system S {\nA\n}\nactor\n", "actor name must not be empty"),
             ("system S {\nA\n}\nactor(bogus): B\n", "malformed actor line"),
+            ("system S {\nA\n}\nactor(left B\n", "malformed actor line"),
             ("system S {\nA\n}\nactor(left)Name\n", "malformed actor line"),
             ("system S {\nA\n}\nactor(left) B\nactor B\n", "duplicate name 'B'"),
             ("system S {\nA\n}\nactor: B\n", "malformed actor line"),
@@ -601,6 +599,10 @@ The User --> Use-Case One
             ("system S {\nA\u{7}\n}\n", "invalid name"),
             ("system Bad\u{7} {\nA\n}\n", "invalid name"),
             ("system S {\nA\n}\nactor X\nX --> A:B\n", "invalid name"),
+            ("system S {\nA\n}\nactor X:Y\n", "invalid name"),
+            ("system S {\nA\n}\nX:Y --> A\n", "invalid name"),
+            ("system S {\nA\nB\n}\nX:Y ..> B: include\n", "invalid name"),
+            ("system S {\nA\nB\n}\nA ..> B|C: include\n", "invalid name"),
             ("system S {\nA\n}\nnot a declaration\n", "expected a system block, actor declaration"),
         ];
         for (input, expected) in cases {

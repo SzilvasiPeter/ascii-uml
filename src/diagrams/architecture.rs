@@ -319,7 +319,7 @@ fn draw_cross_group(grid: &mut [Vec<char>], layout: &RenderLayout<'_>) {
 
 #[cfg(test)]
 mod tests {
-    use super::run;
+    use super::{run, validate_name};
 
     #[test]
     fn single_line_group() {
@@ -337,6 +337,12 @@ mod tests {
     }
 
     #[test]
+    fn empty_name_is_rejected() {
+        let error = validate_name("", "service", 1).unwrap_err();
+        assert_eq!(error, "line 1: empty service name");
+    }
+
+    #[test]
     fn error_cases() {
         let cases = [
             ("", "no groups"),
@@ -344,6 +350,7 @@ mod tests {
             ("A\nB", "no groups"),
             ("A --> B", "no groups"),
             ("group G\nA\n}", "line 1: expected '{'"),
+            ("layout { A }", "line 1: mixed block kinds"),
             ("group G {\nA", "unclosed group"),
             ("group G {\n}", "empty group"),
             ("group G {\ngroup H {\nA\n}\n}", "line 2: nested group"),
@@ -440,6 +447,34 @@ mod tests {
 | +---+     +---+ |
 |                 |
 +-----------------+",
+            ),
+            (
+                "group G {\nA; B\n}\nA --> B",
+                r"+ G ----+
+|       |
+| +---+ |
+| | A | |
+| +-+-+ |
+|   |   |
+| +-v-+ |
+| | B | |
+| +---+ |
+|       |
++-------+",
+            ),
+            (
+                "group G {\nA; B\n}\nB --> A",
+                r"+ G ----+
+|       |
+| +-^-+ |
+| | | | |
+| +-+-+ |
+|   |   |
+| +-+-+ |
+| | | | |
+| +-+-+ |
+|       |
++-------+",
             ),
             (
                 "group G1 {\nA\n}\ngroup G2 {\nB\n}",
