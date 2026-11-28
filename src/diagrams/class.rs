@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use super::block::{Block, render_canvas};
+use super::block::{Block, arrow_h, canvas, draw_hline, draw_vline, render_canvas};
 use super::{parse_document, single_block};
 
 pub fn run(input: &str) -> Result<String, String> {
@@ -204,31 +204,24 @@ fn draw_same_row(band: &mut [Vec<char>], relation: &Relation, coords: &HashMap<&
     let source = coords[relation.source.as_str()];
     let target = coords[relation.target.as_str()];
     let (left, right) = if source.col < target.col { (source, target) } else { (target, source) };
-    let start = left.x + left.width;
-    let end = right.x;
+    let (start, end) = (left.x + left.width, right.x);
     let (_, horizontal) = relation.kind.line_chars();
-
-    band[1][start..end].fill(horizontal);
     let ltr = source.col < target.col;
-    match relation.kind {
-        Kind::Composition => band[1][if ltr { start } else { end - 1 }] = '*',
-        Kind::Generalization | Kind::Realization => {
-            if ltr {
-                band[1][end - 2..end].copy_from_slice(&['|', '>']);
-            } else {
-                band[1][start..start + 2].copy_from_slice(&['<', '|']);
-            }
-        }
-        Kind::Association => {
-            band[1][if ltr { end - 1 } else { start }] = if ltr { '>' } else { '<' }
-        }
-    }
+    let (from, to, head) = match (relation.kind, ltr) {
+        (Kind::Composition, true) => (end - 1, start, "*"),
+        (Kind::Composition, false) => (start, end - 1, "*"),
+        (Kind::Generalization | Kind::Realization, true) => (start, end - 1, "|>"),
+        (Kind::Generalization | Kind::Realization, false) => (end - 1, start, "<|"),
+        (Kind::Association, true) => (start, end - 1, ">"),
+        (Kind::Association, false) => (end - 1, start, "<"),
+    };
+    arrow_h(band, 1, from, to, horizontal, head);
 }
 
 fn render_channel(width: usize, rels: &[&Relation], coords: &HashMap<&str, Coord>) -> Vec<String> {
     let height = 2 + rels.len().max(1);
     let last = height - 1;
-    let mut canvas = vec![vec![' '; width]; height];
+    let mut canvas = canvas(width, height);
 
     for (index, relation) in rels.iter().enumerate() {
         let source = coords[relation.source.as_str()];
@@ -238,27 +231,17 @@ fn render_channel(width: usize, rels: &[&Relation], coords: &HashMap<&str, Coord
         let lane = index + 1;
         let (vertical, horizontal) = relation.kind.line_chars();
 
+        draw_vline(&mut canvas, target_x, 0, lane, vertical);
         canvas[0][target_x] = match relation.kind {
             Kind::Composition => vertical,
             Kind::Generalization | Kind::Realization => 'A',
             Kind::Association => '^',
         };
-        for row in canvas.iter_mut().take(lane + 1).skip(1) {
-            row[target_x] = vertical;
-        }
-        for row in canvas.iter_mut().take(last).skip(lane) {
-            row[source_x] = vertical;
+        draw_vline(&mut canvas, source_x, lane, last, vertical);
+        if source_x != target_x {
+            draw_hline(&mut canvas, lane, source_x, target_x, horizontal);
         }
         canvas[last][source_x] = if relation.kind == Kind::Composition { '*' } else { vertical };
-
-        if source_x == target_x {
-            canvas[lane][source_x] = vertical;
-        } else {
-            let (left, right) = (source_x.min(target_x), source_x.max(target_x));
-            canvas[lane][source_x] = '+';
-            canvas[lane][target_x] = '+';
-            canvas[lane][left + 1..right].fill(horizontal);
-        }
     }
 
     canvas.into_iter().map(String::from_iter).collect()

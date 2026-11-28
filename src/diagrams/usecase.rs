@@ -3,9 +3,6 @@ use std::collections::HashSet;
 use super::block::{canvas, draw_frame, draw_hline, draw_text, draw_vline, put, render_canvas};
 use super::{parse_document, single_block};
 
-const EXPECTED: &str =
-    "a system block, actor declaration, association ('-->'), or dependency ('..>')";
-
 pub fn run(input: &str) -> Result<String, String> {
     Diagram::parse(input).map(|d| d.render())
 }
@@ -72,7 +69,9 @@ impl Diagram {
                 }
                 actors.push(Actor { name, right });
             } else {
-                return Err(format!("line {ln}: expected {EXPECTED}"));
+                let msg =
+                    "a system block, actor declaration, association ('-->'), or dependency ('..>')";
+                return Err(format!("line {ln}: expected {msg}"));
             }
         }
         let edges = resolve(&ucs, &actors, rels)?;

@@ -69,6 +69,26 @@ pub(super) fn draw_vline(canvas: &mut [Vec<char>], col: usize, a: usize, b: usiz
     }
 }
 
+/// Draws a horizontal line and writes `head` so it ends at `to`.
+pub(super) fn arrow_h(
+    canvas: &mut [Vec<char>],
+    row: usize,
+    from: usize,
+    to: usize,
+    glyph: char,
+    head: &str,
+) {
+    draw_hline(canvas, row, from, to, glyph);
+    let start = if to >= from { to + 1 - head.chars().count() } else { to };
+    draw_text(canvas, row, start, head);
+}
+
+/// Draws a vertical arrow between `from` and `to`, ending in `^` or `v`.
+pub(super) fn arrow_v(canvas: &mut [Vec<char>], col: usize, from: usize, to: usize, glyph: char) {
+    draw_vline(canvas, col, from, to, glyph);
+    canvas[to][col] = if to > from { 'v' } else { '^' };
+}
+
 /// Joins canvas rows and trims their ends to avoid trailing output spaces.
 pub(super) fn render_canvas(canvas: &[Vec<char>]) -> String {
     canvas

@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use super::block::{Block, draw_frame, draw_text, put, render_canvas};
+use super::block::{
+    Block, arrow_h, arrow_v, draw_frame, draw_hline, draw_text, draw_vline, render_canvas,
+};
 use super::parse_document;
 
 pub fn run(input: &str) -> Result<String, String> {
@@ -249,24 +251,15 @@ fn draw_same_group(grid: &mut [Vec<char>], layout: &RenderLayout<'_>) {
         if link.from.row == link.to.row {
             let y = layout.tops[link.from.group] + 3 + 4 * link.from.row;
             if link.from.service < link.to.service {
-                let left = source_x + source_width;
-                let right = target_x - 1;
-                grid[y][left..right].fill('-');
-                grid[y][right] = '>';
+                arrow_h(grid, y, source_x + source_width, target_x - 1, '-', ">");
             } else {
-                let left = target_x + target_width;
-                let right = source_x - 1;
-                grid[y][left] = '<';
-                grid[y][left + 1..=right].fill('-');
+                arrow_h(grid, y, source_x - 1, target_x + target_width, '-', "<");
             }
         } else {
             let x = source_x + source_width / 2;
             let source_y = layout.tops[link.from.group] + 4 + 4 * link.from.row;
             let target_y = layout.tops[link.to.group] + 2 + 4 * link.to.row;
-            for y in source_y.min(target_y)..=source_y.max(target_y) {
-                put(grid, x, y, '|');
-            }
-            grid[target_y][x] = if link.to.row > link.from.row { 'v' } else { '^' };
+            arrow_v(grid, x, source_y, target_y, '|');
         }
     }
 }
@@ -277,11 +270,10 @@ fn draw_cross_group(grid: &mut [Vec<char>], layout: &RenderLayout<'_>) {
         if link.from.group == link.to.group {
             continue;
         }
-        let (source_group, source_service) = (link.from.group, link.from.service);
-        let (target_group, target_service) = (link.to.group, link.to.service);
+        let (source_group, target_group) = (link.from.group, link.to.group);
         let down = target_group > source_group;
-        let source_x = layout.centers[source_service];
-        let target_x = layout.centers[target_service];
+        let source_x = layout.centers[link.from.service];
+        let target_x = layout.centers[link.to.service];
         let (source_y, target_y) = if down {
             (
                 layout.tops[source_group] + 5 + 4 * link.from.row,
@@ -293,27 +285,17 @@ fn draw_cross_group(grid: &mut [Vec<char>], layout: &RenderLayout<'_>) {
                 layout.tops[target_group] + 5 + 4 * link.to.row,
             )
         };
-        if source_service == target_service {
-            for y in source_y.min(target_y)..=source_y.max(target_y) {
-                put(grid, source_x, y, '|');
-            }
+        if source_x == target_x {
+            arrow_v(grid, source_x, source_y, target_y, '|');
         } else {
             let gap = source_group.min(target_group);
             let lane = layout.tops[gap] + layout.heights[gap] + lanes[gap];
             lanes[gap] += 1;
-            for y in source_y.min(lane)..=source_y.max(lane) {
-                put(grid, source_x, y, '|');
-            }
-            for x in source_x.min(target_x)..=source_x.max(target_x) {
-                put(grid, x, lane, '-');
-            }
-            put(grid, source_x, lane, '+');
-            put(grid, target_x, lane, '+');
-            for y in lane.min(target_y)..=lane.max(target_y) {
-                put(grid, target_x, y, '|');
-            }
+            draw_vline(grid, source_x, source_y, lane, '|');
+            draw_hline(grid, lane, source_x, target_x, '-');
+            draw_vline(grid, target_x, lane, target_y, '|');
+            grid[target_y][target_x] = if down { 'v' } else { '^' };
         }
-        grid[target_y][target_x] = if down { 'v' } else { '^' };
     }
 }
 
