@@ -3,9 +3,7 @@ use std::collections::{HashMap, HashSet};
 use super::block::{Block, arrow_h, canvas, draw_hline, draw_vline, render_canvas};
 use super::{parse_document, single_block};
 
-pub fn run(input: &str) -> Result<String, String> {
-    Diagram::parse(input).map(|diagram| diagram.render())
-}
+super::run!(Diagram);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -109,26 +107,17 @@ impl Diagram {
 
     fn render(&self) -> String {
         const GAP: usize = 5;
-        let widths: Vec<Vec<usize>> = self
-            .rows
-            .iter()
-            .map(|row| row.iter().map(|name| Block::boxed(name.as_str()).width()).collect())
-            .collect();
-        let row_widths: Vec<usize> = widths
-            .iter()
-            .map(|row| row.iter().sum::<usize>() + GAP * row.len().saturating_sub(1))
-            .collect();
-        let canvas_width = row_widths.iter().copied().max().unwrap_or(0);
-
         let mut positions = HashMap::new();
+        let mut canvas_width = 0;
         for (row_index, row) in self.rows.iter().enumerate() {
+            let widths: Vec<_> = row.iter().map(|n| Block::boxed(n.as_str()).width()).collect();
             let mut x = 0;
-            for (column_index, name) in row.iter().enumerate() {
-                let width = widths[row_index][column_index];
+            for (column_index, (name, &width)) in row.iter().zip(&widths).enumerate() {
                 let position = Coord { row: row_index, col: column_index, x, width };
                 positions.insert(name.as_str(), position);
                 x += width + GAP;
             }
+            canvas_width = canvas_width.max(x.saturating_sub(GAP));
         }
 
         let mut same_row_relations = vec![Vec::new(); self.rows.len()];
@@ -145,7 +134,7 @@ impl Diagram {
 
         let mut lines = Vec::new();
         for row_index in 0..self.rows.len() {
-            let mut band = vec![vec![' '; canvas_width]; 3];
+            let mut band = canvas(canvas_width, 3);
             for (column_index, name) in self.rows[row_index].iter().enumerate() {
                 let position = positions[name.as_str()];
                 Block::boxed(name.as_str()).draw_on(&mut band, position.x, 0);
@@ -255,133 +244,45 @@ mod tests {
         run(input).unwrap()
     }
 
+    fn same_row(arrow: &str) -> String {
+        format!("+---+     +---+\n| A |{arrow}| B |\n+---+     +---+")
+    }
+
+    fn between_rows(head: char, vertical: char, last: char) -> String {
+        format!("+---+\n| A |\n+---+\n  {head}\n  {vertical}\n  {last}\n+---+\n| B |\n+---+")
+    }
+
     #[test]
     fn renders_every_relation_in_one_row() {
         let cases = [
-            (
-                "A --|> B",
-                "\
-+---+     +---+
-| A |---|>| B |
-+---+     +---+",
-            ),
-            (
-                "A ..|> B",
-                "\
-+---+     +---+
-| A |...|>| B |
-+---+     +---+",
-            ),
-            (
-                "B --|> A",
-                "\
-+---+     +---+
-| A |<|---| B |
-+---+     +---+",
-            ),
-            (
-                "B ..|> A",
-                "\
-+---+     +---+
-| A |<|...| B |
-+---+     +---+",
-            ),
-            (
-                "A *-- B",
-                "\
-+---+     +---+
-| A |*----| B |
-+---+     +---+",
-            ),
-            (
-                "B *-- A",
-                "\
-+---+     +---+
-| A |----*| B |
-+---+     +---+",
-            ),
-            (
-                "A --> B",
-                "\
-+---+     +---+
-| A |---->| B |
-+---+     +---+",
-            ),
-            (
-                "B --> A",
-                "\
-+---+     +---+
-| A |<----| B |
-+---+     +---+",
-            ),
+            ("A --|> B", "---|>"),
+            ("A ..|> B", "...|>"),
+            ("B --|> A", "<|---"),
+            ("B ..|> A", "<|..."),
+            ("A *-- B", "*----"),
+            ("B *-- A", "----*"),
+            ("A --> B", "---->"),
+            ("B --> A", "<----"),
         ];
 
-        for (relation, expected) in cases {
+        for (relation, arrow) in cases {
             let input = format!("layout {{ A, B }}\n{relation}\n");
-            assert_eq!(render(&input), expected, "relation: {relation}");
+            assert_eq!(render(&input), same_row(arrow), "relation: {relation}");
         }
     }
 
     #[test]
     fn renders_every_relation_between_adjacent_rows() {
         let cases = [
-            (
-                "B --|> A",
-                "\
-+---+
-| A |
-+---+
-  A
-  |
-  |
-+---+
-| B |
-+---+",
-            ),
-            (
-                "B ..|> A",
-                "\
-+---+
-| A |
-+---+
-  A
-  :
-  :
-+---+
-| B |
-+---+",
-            ),
-            (
-                "B *-- A",
-                "\
-+---+
-| A |
-+---+
-  |
-  |
-  *
-+---+
-| B |
-+---+",
-            ),
-            (
-                "B --> A",
-                "\
-+---+
-| A |
-+---+
-  ^
-  |
-  |
-+---+
-| B |
-+---+",
-            ),
+            ("B --|> A", ('A', '|', '|')),
+            ("B ..|> A", ('A', ':', ':')),
+            ("B *-- A", ('|', '|', '*')),
+            ("B --> A", ('^', '|', '|')),
         ];
 
-        for (relation, expected) in cases {
+        for (relation, (head, vertical, last)) in cases {
             let input = format!("layout {{ A\nB }}\n{relation}\n");
-            assert_eq!(render(&input), expected, "relation: {relation}");
+            assert_eq!(render(&input), between_rows(head, vertical, last), "relation: {relation}");
         }
     }
 

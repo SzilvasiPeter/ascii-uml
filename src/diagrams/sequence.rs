@@ -1,9 +1,7 @@
 use super::block::{BLOCK_HEIGHT, Block};
 use super::parse_document;
 
-pub fn run(input: &str) -> Result<String, String> {
-    Diagram::parse(input).map(|diagram| diagram.render())
-}
+super::run!(Diagram);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Line {

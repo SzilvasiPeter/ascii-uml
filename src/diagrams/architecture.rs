@@ -5,9 +5,7 @@ use super::block::{
 };
 use super::parse_document;
 
-pub fn run(input: &str) -> Result<String, String> {
-    Diagram::parse(input).map(|diagram| diagram.render())
-}
+super::run!(Diagram);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Pos {

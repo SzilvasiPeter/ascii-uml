@@ -3,9 +3,7 @@ use std::collections::HashSet;
 use super::block::{canvas, draw_frame, draw_hline, draw_text, draw_vline, put, render_canvas};
 use super::{parse_document, single_block};
 
-pub fn run(input: &str) -> Result<String, String> {
-    Diagram::parse(input).map(|d| d.render())
-}
+super::run!(Diagram);
 
 struct Actor {
     name: String,

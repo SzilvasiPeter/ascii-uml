@@ -7,9 +7,7 @@
 pub(super) const BLOCK_HEIGHT: usize = 3;
 
 /// Canvas helpers let routed edges share and join one drawing surface.
-pub(super) type Canvas = Vec<Vec<char>>;
-
-pub(super) fn canvas(width: usize, height: usize) -> Canvas {
+pub(super) fn canvas(width: usize, height: usize) -> Vec<Vec<char>> {
     vec![vec![' '; width]; height]
 }
 

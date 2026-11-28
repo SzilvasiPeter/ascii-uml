@@ -1,3 +1,13 @@
+/// Generates the CLI entry point shared by every diagram module.
+macro_rules! run {
+    ($diagram:ident) => {
+        pub fn run(input: &str) -> Result<String, String> {
+            $diagram::parse(input).map(|diagram| diagram.render())
+        }
+    };
+}
+pub(super) use run;
+
 pub mod architecture;
 mod block;
 pub mod class;
