@@ -1,4 +1,4 @@
-use super::block::{BLOCK_HEIGHT, Block};
+use super::block::{Block, canvas, render_canvas_padded};
 use super::parse_document;
 
 super::run!(Diagram);
@@ -120,48 +120,31 @@ impl Diagram {
         }
         let lefts: Vec<_> = centers.iter().zip(&widths).map(|(c, w)| c - w / 2).collect();
 
-        let mut header = Vec::new();
+        let mut canvas = canvas(row_width, 4 + 3 * self.events.len());
         for (i, name) in self.actors.iter().enumerate() {
-            if i > 0 {
-                header.push(Block::spacer(lefts[i] - lefts[i - 1] - widths[i - 1], BLOCK_HEIGHT));
-            }
-            header.push(Block::boxed(name.as_str()));
+            Block::boxed(name.as_str()).draw_on(&mut canvas, lefts[i], 0);
         }
-
-        let empty_row = || lifeline_row(&centers, row_width);
-        let text_row = |row: Vec<char>| Block::text(String::from_iter(row));
-        let mut blocks = vec![Block::horizontal(header, 0), text_row(empty_row())];
-        for event in &self.events {
-            let (from, to) = (event.from, event.to);
-            let message_start = centers[from.min(to)] + 2;
-            let mut message_row = empty_row();
-            for (slot, ch) in message_row[message_start..].iter_mut().zip(event.message.chars()) {
+        for row in canvas.iter_mut().skip(3) {
+            for &x in &centers {
+                row[x] = '|';
+            }
+        }
+        for (index, event) in self.events.iter().enumerate() {
+            let y = 4 + 3 * index;
+            let start = centers[event.from.min(event.to)] + 2;
+            for (slot, ch) in canvas[y][start..].iter_mut().zip(event.message.chars()) {
                 *slot = ch;
             }
-            blocks.push(text_row(message_row));
-            blocks.push(text_row(draw_connection(
-                &empty_row(),
-                centers[from],
-                centers[to],
+            draw_connection(
+                &mut canvas[y + 1],
+                centers[event.from],
+                centers[event.to],
                 event.arrow,
-            )));
-            blocks.push(text_row(empty_row()));
+            );
         }
 
-        Block::vertical(blocks, 0).render()
+        render_canvas_padded(&canvas)
     }
-}
-
-// +---+ +---+
-// | a | | b |
-// +---+ +---+
-//   |     |
-fn lifeline_row(columns: &[usize], width: usize) -> Vec<char> {
-    let mut row = vec![' '; width];
-    for &x in columns {
-        row[x] = '|';
-    }
-    row
 }
 
 // +---+ +---+
@@ -169,16 +152,14 @@ fn lifeline_row(columns: &[usize], width: usize) -> Vec<char> {
 // +---+ +---+
 //   |     |
 //   |---->|
-fn draw_connection(row: &[char], from: usize, to: usize, kind: Arrow) -> Vec<char> {
-    let mut result = row.to_vec();
+fn draw_connection(row: &mut [char], from: usize, to: usize, kind: Arrow) {
     let (left, right) = (from.min(to), from.max(to));
     let (Arrow::Head(line) | Arrow::Plain(line)) = kind;
-    result[left + 1..right].fill(line.fill());
+    row[left + 1..right].fill(line.fill());
     if matches!(kind, Arrow::Head(_)) {
         let (idx, ch) = if from < to { (right - 1, '>') } else { (left + 1, '<') };
-        result[idx] = ch;
+        row[idx] = ch;
     }
-    result
 }
 
 #[cfg(test)]

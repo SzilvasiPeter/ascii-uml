@@ -252,6 +252,13 @@ mod tests {
         format!("+---+\n| A |\n+---+\n  {head}\n  {vertical}\n  {last}\n+---+\n| B |\n+---+")
     }
 
+    fn offset(head: char, fill: char, vertical: char) -> String {
+        let line = fill.to_string().repeat(9);
+        format!(
+            "+---+     +---+\n| X |     | A |\n+---+     +---+\n            {head}\n  +{line}+\n  {vertical}\n+---+\n| B |\n+---+"
+        )
+    }
+
     #[test]
     fn renders_every_relation_in_one_row() {
         let cases = [
@@ -288,13 +295,7 @@ mod tests {
 
     #[test]
     fn allows_trailing_comma_in_layout() {
-        let input = "layout { A, B, }\nA --> B\n";
-        let expected = "\
-+---+     +---+
-| A |---->| B |
-+---+     +---+";
-
-        assert_eq!(render(input), expected);
+        assert_eq!(render("layout { A, B, }\nA --> B\n"), same_row("---->"));
     }
 
     #[test]
@@ -311,31 +312,9 @@ mod tests {
     #[test]
     fn renders_offset_upward_edges() {
         let layout = "layout {\n  X, A\n  B\n}\n";
-        let solid = concat!(
-            "+---+     +---+\n",
-            "| X |     | A |\n",
-            "+---+     +---+\n",
-            "            ^\n",
-            "  +---------+\n",
-            "  |\n",
-            "+---+\n",
-            "| B |\n",
-            "+---+",
-        );
-        let dotted = concat!(
-            "+---+     +---+\n",
-            "| X |     | A |\n",
-            "+---+     +---+\n",
-            "            A\n",
-            "  +.........+\n",
-            "  :\n",
-            "+---+\n",
-            "| B |\n",
-            "+---+",
-        );
 
-        assert_eq!(render(&format!("{layout}B --> A\n")), solid);
-        assert_eq!(render(&format!("{layout}B ..|> A\n")), dotted);
+        assert_eq!(render(&format!("{layout}B --> A\n")), offset('^', '-', '|'));
+        assert_eq!(render(&format!("{layout}B ..|> A\n")), offset('A', '.', ':'));
     }
 
     #[test]
@@ -351,12 +330,8 @@ layout {
 # between layout and relations
 A --> B
 ";
-        let expected = "\
-+---+     +---+
-| A |---->| B |
-+---+     +---+";
 
-        assert_eq!(render(input), expected);
+        assert_eq!(render(input), same_row("---->"));
     }
 
     #[test]
