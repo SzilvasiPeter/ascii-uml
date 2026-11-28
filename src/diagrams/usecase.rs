@@ -139,8 +139,8 @@ fn ends(ln: usize, kind: &str, a: &str, b: &str) -> Result<(String, String), Str
 
 #[derive(Clone, Copy)]
 enum Ep {
-    A(usize),
-    U(usize),
+    Actor(usize),
+    Usecase(usize),
 }
 
 fn resolve(ucs: &[String], actors: &[Actor], rels: Vec<Relation>) -> Result<Vec<Edge>, String> {
@@ -148,8 +148,8 @@ fn resolve(ucs: &[String], actors: &[Actor], rels: Vec<Relation>) -> Result<Vec<
     let (mut deps, mut rows) = (HashSet::new(), HashSet::new());
     for Relation { src: rs, dst: rd, dep, ln } in rels {
         let find = |n: &str| {
-            let u = ucs.iter().position(|u| u == n).map(Ep::U);
-            u.or_else(|| actors.iter().position(|a| a.name == n).map(Ep::A))
+            let uc = ucs.iter().position(|u| u == n).map(Ep::Usecase);
+            uc.or_else(|| actors.iter().position(|a| a.name == n).map(Ep::Actor))
                 .ok_or_else(|| format!("line {ln}: unknown endpoint '{n}'"))
         };
         let (src, dst) = (find(&rs)?, find(&rd)?);
@@ -158,9 +158,9 @@ fn resolve(ucs: &[String], actors: &[Actor], rels: Vec<Relation>) -> Result<Vec<
         }
         if dep.is_none() {
             let (actor, uc) = match (src, dst) {
-                (Ep::A(a), Ep::U(u)) | (Ep::U(u), Ep::A(a)) => (a, u),
-                (Ep::A(_), Ep::A(_)) => return Err(format!("line {ln}: two actors")),
-                (Ep::U(_), Ep::U(_)) => return Err(format!("line {ln}: two use cases")),
+                (Ep::Actor(a), Ep::Usecase(u)) | (Ep::Usecase(u), Ep::Actor(a)) => (a, u),
+                (Ep::Actor(_), Ep::Actor(_)) => return Err(format!("line {ln}: two actors")),
+                (Ep::Usecase(_), Ep::Usecase(_)) => return Err(format!("line {ln}: two usecase")),
             };
             if !pairs.insert((actor, uc)) {
                 return Err(format!("line {ln}: duplicate relation"));
@@ -168,15 +168,15 @@ fn resolve(ucs: &[String], actors: &[Actor], rels: Vec<Relation>) -> Result<Vec<
             edges.push(Edge { src: actor, dst: uc, dep: None });
             continue;
         }
-        let (Ep::U(src), Ep::U(dst)) = (src, dst) else {
+        let (Ep::Usecase(src), Ep::Usecase(dst)) = (src, dst) else {
             return Err(format!("line {ln}: involve an actor"));
         };
         if !deps.insert((src, dst)) {
             return Err(format!("line {ln}: duplicate dependency"));
         }
         let row = 2 + 4 * src;
-        let lr = if dst > src { row + 2 } else { row - 2 };
-        if !rows.insert(lr) {
+        let left_to_right = if dst > src { row + 2 } else { row - 2 };
+        if !rows.insert(left_to_right) {
             return Err(format!("line {ln}: label row overlaps"));
         }
         edges.push(Edge { src, dst, dep });
@@ -207,9 +207,9 @@ impl Layout {
         let tw = if has { uw.max(13) } else { uw };
         let right = left + (tw + 2 + 2 * lanes).max(d.system.chars().count() + 4) + 1;
         let rcol = right + 1 + 2 * nr + usize::from(nr > 0);
-        let w = if nr > 0 { (right + 1).max(rcol + rw) } else { right + 1 };
-        let h = (4 * d.ucs.len() + 1).max(5 * nl.max(nr));
-        (Self { left, right, rcol, tw }, w, h)
+        let width = if nr > 0 { (right + 1).max(rcol + rw) } else { right + 1 };
+        let height = (4 * d.ucs.len() + 1).max(5 * nl.max(nr));
+        (Self { left, right, rcol, tw }, width, height)
     }
 }
 
